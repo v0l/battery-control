@@ -3,10 +3,8 @@
 //! Batteries are identified by their **hardware id** (BLE address/UUID or serial
 //! port), discovered across every transport. You never specify a backend.
 
-use battery_control::{
-    discover, resolve, Battery, Command, DiscoverOptions, PortKind, Result,
-};
-use clap::{Parser, Subcommand, ValueEnum};
+use battery_control::{discover, resolve, Battery, Command, DiscoverOptions, Result};
+use clap::{Parser, Subcommand};
 use std::time::Duration;
 
 mod output;
@@ -50,24 +48,17 @@ enum Cmd {
         #[arg(long, default_value_t = 2)]
         interval: u64,
     },
-    /// Control a battery, e.g. `battery set <id> ac on`, `set <id> charge-limit 80`.
+    /// Control a battery.
+    ///
+    /// TARGET is a port id (e.g. `ac`, `dc`, `usb_c1`) or a reserved switch:
+    /// `charge`, `discharge`, `balancer`, `charge-limit`. Examples:
+    /// `battery set <id> ac on`, `battery set <id> charge-limit 80`.
     Set {
         query: String,
-        #[arg(value_enum)]
-        target: Target,
-        /// `on`/`off` for switches, or a number for charge-limit.
+        target: String,
+        /// `on`/`off` for switches/ports, or a number for `charge-limit`.
         value: String,
     },
-}
-
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum Target {
-    Ac,
-    Dc,
-    Charge,
-    Discharge,
-    Balancer,
-    ChargeLimit,
 }
 
 fn main() {
@@ -129,10 +120,10 @@ async fn run(cli: Cli) -> Result<()> {
             target,
             value,
         } => {
-            let cmd = build_command(*target, value)?;
+            let cmd = build_command(target, value)?;
             let mut bat = connect(&cli, query).await?;
             bat.execute(cmd).await?;
-            println!("ok: {} {:?} {}", query, target, value);
+            println!("ok: {query} {target} {value}");
         }
     }
     Ok(())
@@ -149,7 +140,8 @@ async fn connect(cli: &Cli, query: &str) -> Result<Box<dyn Battery>> {
     chosen.connect(cli.ble_secs).await
 }
 
-fn build_command(target: Target, value: &str) -> Result<Command> {
+/// Reserved switch/setting words; anything else is treated as a port id.
+fn build_command(target: &str, value: &str) -> Result<Command> {
     let on = || -> Result<bool> {
         match value.to_ascii_lowercase().as_str() {
             "on" | "true" | "1" => Ok(true),
@@ -159,24 +151,21 @@ fn build_command(target: Target, value: &str) -> Result<Command> {
             ))),
         }
     };
-    Ok(match target {
-        Target::Ac => Command::SetPort {
-            kind: PortKind::Ac,
-            on: on()?,
-        },
-        Target::Dc => Command::SetPort {
-            kind: PortKind::Dc,
-            on: on()?,
-        },
-        Target::Charge => Command::SetCharging(on()?),
-        Target::Discharge => Command::SetDischarging(on()?),
-        Target::Balancer => Command::SetBalancer(on()?),
-        Target::ChargeLimit => {
+    Ok(match target.to_ascii_lowercase().as_str() {
+        "charge" => Command::SetCharging(on()?),
+        "discharge" => Command::SetDischarging(on()?),
+        "balancer" => Command::SetBalancer(on()?),
+        "charge-limit" | "charge_limit" => {
             let pct: u8 = value
                 .parse()
                 .map_err(|_| battery_control::Error::InvalidArgument(format!("bad %: {value}")))?;
             Command::SetChargeLimit(pct)
         }
+        // Otherwise it's a port id, e.g. `ac`, `dc`, `usb_c1`.
+        port_id => Command::SetPort {
+            id: port_id.to_string(),
+            on: on()?,
+        },
     })
 }
 

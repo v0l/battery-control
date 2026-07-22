@@ -33,7 +33,7 @@ use.
 ## Example
 
 ```rust
-use battery_control::{Battery, Command, PortKind};
+use battery_control::{Battery, Command};
 use battery_control::backends::AnkerBattery;
 
 #[tokio::main(flavor = "multi_thread")]
@@ -44,7 +44,7 @@ async fn main() -> battery_control::Result<()> {
     println!("SOC {:?}%  out {:?} W", s.soc, s.power_out);
 
     if bat.capabilities().contains(battery_control::Capabilities::TOGGLE_PORTS) {
-        bat.execute(Command::SetPort { kind: PortKind::Dc, on: true }).await?;
+        bat.execute(Command::SetPort { id: "dc".into(), on: true }).await?;
     }
     Ok(())
 }
@@ -81,7 +81,7 @@ let status = s.to_status();
 - basics: `soc`, `soh`, `voltage`, `current`, `power_in/out`, `temperature_c`
 - capacity: `capacity_remaining_ah`, `capacity_full_ah`, `cycles`, `time_remaining_h`
 - BMS: `cells: Vec<CellInfo>`, `charging`/`discharging`, `charge/discharge_current_limit_a`
-- stations: `ports: Vec<PortInfo>`
+- stations: `ports: Vec<PortInfo>` — free-form ports (`id`, optional `label`, `direction` in/out/bidir, `on`, `watts`); no fixed port-type enum
 - `alarms: Vec<String>`
 
 `Command`: `SetPort`, `SetCharging`, `SetDischarging`, `SetBalancer`,

@@ -1,16 +1,16 @@
 //! Text/JSON rendering for the `battery` CLI.
 
-use battery_control::{BatteryStatus, DeviceInfo, Discovered, PortKind};
+use battery_control::{BatteryStatus, DeviceInfo, Discovered, PortDirection};
 
 pub fn print_scan(devices: &[Discovered]) {
     if devices.is_empty() {
         println!("no batteries found");
         return;
     }
-    println!("{:<34} {:<16} {:<14} LABEL", "HARDWARE ID", "TYPE", "BACKEND");
+    println!("{:<44} {:<14} {:<9} LABEL", "HARDWARE ID", "TYPE", "BACKEND");
     for d in devices {
         println!(
-            "{:<34} {:<16} {:<14} {}",
+            "{:<44} {:<14} {:<9} {}",
             d.id,
             format!("{:?}", d.class),
             d.backend,
@@ -97,26 +97,22 @@ fn render_text(info: &DeviceInfo, s: &BatteryStatus) -> String {
         row(&mut o, "Cycles:", opt(&s.cycles, ""));
     }
 
-    // Ports (stations)
+    // Ports (stations), labelled by their unique id + flow direction.
     for p in &s.ports {
-        let name = match p.kind {
-            PortKind::Ac => "AC",
-            PortKind::Dc => "DC (12V)",
-            PortKind::Solar => "Solar",
-            PortKind::UsbC => "USB-C",
-            PortKind::UsbA => "USB-A",
-            PortKind::Other => "Port",
-        };
         let state = match p.on {
             Some(true) => "on",
             Some(false) => "off",
             None => "-",
         };
-        let val = match p.watts {
-            Some(w) => format!("{state} ({w} W)"),
-            None => state.to_string(),
+        let dir = match p.direction {
+            Some(PortDirection::In) => " in",
+            Some(PortDirection::Out) => " out",
+            Some(PortDirection::Bidir) => " io",
+            None => "",
         };
-        row(&mut o, &format!("{name}:"), val);
+        let watts = p.watts.map(|w| format!(" {w} W")).unwrap_or_default();
+        let name = p.label.as_deref().unwrap_or(&p.id);
+        row(&mut o, &format!("{name}:"), format!("{state}{dir}{watts}"));
     }
 
     // Cells (BMS)

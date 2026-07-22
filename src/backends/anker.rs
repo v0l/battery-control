@@ -1,7 +1,7 @@
 //! Adapter for [`anker_solix`] — Anker SOLIX portable power stations over BLE.
 
 use crate::battery::{require, Battery};
-use crate::types::{BatteryStatus, Command, PortInfo, PortKind};
+use crate::types::{BatteryStatus, Command, PortDirection, PortInfo};
 use crate::{Capabilities, DeviceInfo, Error, Result};
 use anker_solix::{Device, PortStatus as AnkerPort, Telemetry};
 use async_trait::async_trait;
@@ -38,26 +38,30 @@ impl AnkerBattery {
     }
 }
 
-fn port(kind: PortKind, p: &anker_solix::Port) -> PortInfo {
+fn port(id: &str, label: &str, p: &anker_solix::Port) -> PortInfo {
+    let (on, direction) = match p.status {
+        AnkerPort::Output => (Some(true), Some(PortDirection::Out)),
+        AnkerPort::Input => (Some(true), Some(PortDirection::In)),
+        AnkerPort::Off => (Some(false), None),
+        AnkerPort::Unknown => (None, None),
+    };
     PortInfo {
-        kind,
-        on: match p.status {
-            AnkerPort::Output | AnkerPort::Input => Some(true),
-            AnkerPort::Off => Some(false),
-            AnkerPort::Unknown => None,
-        },
+        id: id.to_string(),
+        label: Some(label.to_string()),
+        direction,
+        on,
         watts: p.watts.map(|w| w as f32),
     }
 }
 
 fn to_status(t: &Telemetry) -> BatteryStatus {
     let mut ports = vec![
-        port(PortKind::Ac, &t.ac),
-        port(PortKind::Dc, &t.dc),
-        port(PortKind::Solar, &t.solar),
-        port(PortKind::UsbC, &t.usb_c1),
-        port(PortKind::UsbC, &t.usb_c2),
-        port(PortKind::UsbA, &t.usb_a1),
+        port("ac", "AC", &t.ac),
+        port("dc", "DC (12V)", &t.dc),
+        port("solar", "Solar", &t.solar),
+        port("usb_c1", "USB-C 1", &t.usb_c1),
+        port("usb_c2", "USB-C 2", &t.usb_c2),
+        port("usb_a1", "USB-A 1", &t.usb_a1),
     ];
     ports.retain(|p| p.on.is_some() || p.watts.is_some());
 
@@ -101,12 +105,16 @@ impl Battery for AnkerBattery {
 
     async fn execute(&mut self, cmd: Command) -> Result<()> {
         match cmd {
-            Command::SetPort { kind, on } => {
+            Command::SetPort { id, on } => {
                 require(self.capabilities(), Capabilities::TOGGLE_PORTS)?;
-                match kind {
-                    PortKind::Ac => self.device.set_ac(on).await,
-                    PortKind::Dc => self.device.set_dc(on).await,
-                    _ => return Err(Error::Unsupported),
+                match id.as_str() {
+                    "ac" => self.device.set_ac(on).await,
+                    "dc" => self.device.set_dc(on).await,
+                    other => {
+                        return Err(Error::InvalidArgument(format!(
+                            "port '{other}' is not controllable on this device"
+                        )))
+                    }
                 }
                 .map_err(|e| Error::Transport(e.to_string()))
             }

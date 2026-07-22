@@ -27,24 +27,36 @@ pub struct CellInfo {
     pub balancing: Option<bool>,
 }
 
-/// A controllable/observable output port (power-station-class devices).
-#[derive(Debug, Clone, Serialize)]
-pub struct PortInfo {
-    pub kind: PortKind,
-    pub on: Option<bool>,
-    pub watts: Option<f32>,
-}
-
-/// Kinds of ports / outputs across device classes.
+/// Direction of power flow through a port.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum PortKind {
-    Ac,
-    Dc,
-    Solar,
-    UsbC,
-    UsbA,
-    Other,
+pub enum PortDirection {
+    /// Power flows into the battery (e.g. solar / AC charging input).
+    In,
+    /// Power flows out of the battery (e.g. AC/DC/USB output).
+    Out,
+    /// Port can source or sink (e.g. USB-C PD).
+    Bidir,
+}
+
+/// A controllable/observable port on a device.
+///
+/// Ports are intentionally free-form: there is no fixed set of port types
+/// because devices expose wildly different connectors (AC, 12 V, USB-C, car
+/// socket, Anderson, XT60, wireless pad, …). A port is identified by its
+/// [`id`](PortInfo::id) and targeted by that id via [`Command::SetPort`].
+#[derive(Debug, Clone, Serialize)]
+pub struct PortInfo {
+    /// Stable, unique identifier used to target the port, e.g. `"ac"`,
+    /// `"usb_c1"`. Distinguishes otherwise-identical ports.
+    pub id: String,
+    /// Optional human-friendly name, e.g. `"USB-C 1"`.
+    pub label: Option<String>,
+    /// Direction of flow, if known (may reflect the *current* flow on
+    /// bidirectional ports).
+    pub direction: Option<PortDirection>,
+    pub on: Option<bool>,
+    pub watts: Option<f32>,
 }
 
 /// A normalized snapshot of a battery's state.
@@ -116,8 +128,8 @@ impl BatteryStatus {
 /// [`crate::Capabilities`]; unsupported commands return [`crate::Error::Unsupported`].
 #[derive(Debug, Clone)]
 pub enum Command {
-    /// Turn a named output port on/off (power stations).
-    SetPort { kind: PortKind, on: bool },
+    /// Turn a port on/off, addressed by its [`PortInfo::id`].
+    SetPort { id: String, on: bool },
     /// Enable/disable the charge MOSFET (BMS).
     SetCharging(bool),
     /// Enable/disable the discharge MOSFET (BMS).
