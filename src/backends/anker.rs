@@ -1,9 +1,9 @@
 //! Adapter for [`anker_solix`] — Anker SOLIX portable power stations over BLE.
 
-use crate::battery::{require, Battery};
+use crate::battery::Battery;
 use crate::types::{BatteryStatus, Command, PortDirection, PortInfo, Sensor};
 use crate::{Capabilities, DeviceInfo, Error, Result};
-use anker_solix::{Device, PortStatus as AnkerPort, Telemetry};
+use anker_solix::{Brightness, Device, PortStatus as AnkerPort, Telemetry};
 use async_trait::async_trait;
 use std::time::Duration;
 
@@ -96,6 +96,7 @@ impl Battery for AnkerBattery {
             | Capabilities::READ_PORTS
             | Capabilities::READ_TEMPERATURE
             | Capabilities::TOGGLE_PORTS
+            | Capabilities::WRITE_SETTINGS
     }
 
     async fn status(&mut self) -> Result<BatteryStatus> {
@@ -114,10 +115,17 @@ impl Battery for AnkerBattery {
     async fn execute(&mut self, cmd: Command) -> Result<()> {
         match cmd {
             Command::Toggle { id, on } => {
-                require(self.capabilities(), Capabilities::TOGGLE_PORTS)?;
                 match id.as_str() {
                     "ac" => self.device.set_ac(on).await,
                     "dc" => self.device.set_dc(on).await,
+                    // Light bar / display are gen-1 only; the device returns
+                    // UnsupportedModel on gen-2 until the codes are known.
+                    "display" => self.device.set_display(on).await,
+                    "light" => {
+                        self.device
+                            .set_light(if on { Brightness::High } else { Brightness::Off })
+                            .await
+                    }
                     other => {
                         return Err(Error::InvalidArgument(format!(
                             "'{other}' is not controllable on this device"
@@ -125,6 +133,14 @@ impl Battery for AnkerBattery {
                     }
                 }
                 .map_err(|e| Error::Transport(e.to_string()))
+            }
+            Command::Set { id, value } if id == "light" => {
+                let b = Brightness::parse(&value)
+                    .ok_or_else(|| Error::InvalidArgument(format!("bad light mode: {value}")))?;
+                self.device
+                    .set_light(b)
+                    .await
+                    .map_err(|e| Error::Transport(e.to_string()))
             }
             Command::Set { .. } => Err(Error::Unsupported),
         }

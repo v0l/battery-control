@@ -27,7 +27,8 @@ futures-util = { version = "0.3", optional = true }
 tokio-stream = { version = "0.1", optional = true }
 
 # --- backend crates (each feature-gated) ---
-anker_solix = { version = "0.2.3", optional = true }
+# path for local iteration; version is used when published to crates.io
+anker_solix = { path = "../anker-rs", version = "0.2", optional = true }
 jk_bms = { version = "0.3", optional = true }
 # used only for serial port *enumeration* during discovery
 tokio-serial = { version = "5", optional = true }
