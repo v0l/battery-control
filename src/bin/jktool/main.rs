@@ -3,10 +3,14 @@ use jk_bms::{MybmmPack, MybmmModule, Transport, JkInfo, FrameAssembler, Protocol
 use jk_bms::{get_info_command, get_cell_info_command, get_can_info_command, get_can_cell_info_command};
 use jk_bms::{SETTINGS, build_setting_write_frame, build_can_setting_write_frame};
 
+#[cfg(target_os = "linux")]
 mod transport_serial;
+#[cfg(target_os = "linux")]
 use transport_serial::SerialTransport;
 
+#[cfg(target_os = "linux")]
 mod transport_can;
+#[cfg(target_os = "linux")]
 use transport_can::CanTransport;
 
 #[cfg(feature = "bluetooth")]
@@ -73,6 +77,7 @@ enum Commands {
     Scan,
 
     /// Scan for JK BMS devices on CAN bus
+    #[cfg(target_os = "linux")]
     ScanCan {
         /// CAN interface to use (e.g., can0)
         #[arg(short, long, default_value = "can0")]
@@ -119,6 +124,7 @@ fn main() {
     }
 
     // CAN scan doesn't need a full session
+    #[cfg(target_os = "linux")]
     if matches!(command, Commands::ScanCan { .. }) {
         handle_can_scan(&cli, &command);
         return;
@@ -235,6 +241,7 @@ fn main() {
         }
         #[cfg(feature = "bluetooth")]
         Commands::Scan => { unreachable!() }
+        #[cfg(target_os = "linux")]
         Commands::ScanCan { .. } => { unreachable!() }
         Commands::ListSettings => { unreachable!() }
     }
@@ -359,6 +366,7 @@ fn do_read(session: &mut jk_bms::JkSession, pack: &mut MybmmPack, cli: &Cli, nee
     JkInfo::from_pack(pack)
 }
 
+#[cfg(target_os = "linux")]
 fn handle_can_scan(_cli: &Cli, command: &Commands) {
     let timeout = if let Commands::ScanCan { timeout, .. } = command {
         *timeout
@@ -421,6 +429,7 @@ fn handle_can_scan(_cli: &Cli, command: &Commands) {
     }
 }
 
+#[cfg(target_os = "linux")]
 #[derive(Debug, Clone)]
 struct CanDevice {
     rx_id: u32,
@@ -430,6 +439,7 @@ struct CanDevice {
     swvers: String,
 }
 
+#[cfg(target_os = "linux")]
 fn scan_can_bus(interface: &str, broadcast_ids: &[u32], timeout_secs: u64) -> Vec<CanDevice> {
     use std::process::Command;
     use std::time::Duration;
@@ -741,7 +751,9 @@ fn parse_transport(spec: &str) -> (&str, &str) {
 
 fn create_session(pack: &MybmmPack, _module: &MybmmModule) -> jk_bms::Result<jk_bms::JkSession> {
     let transport: Box<dyn Transport> = match pack.transport.as_str() {
+        #[cfg(target_os = "linux")]
         "serial" => Box::new(SerialTransport::from_target(&pack.target)),
+        #[cfg(target_os = "linux")]
         "can" => Box::new(CanTransport::from_target(&pack.target)?),
         #[cfg(feature = "bluetooth")]
         "bt" => Box::new(BluetoothTransport::from_target(&pack.target)),
