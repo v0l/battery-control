@@ -1,0 +1,52 @@
+[package]
+name = "battery_control"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "One async trait to monitor and control batteries across many BMS/power-station backends (Anker SOLIX, JK, Daly, Victron, Pylontech CAN, ...)"
+license = "MIT"
+repository = "https://github.com/v0l/battery-control"
+keywords = ["battery", "bms", "solar", "bluetooth", "modbus"]
+categories = ["hardware-support", "api-bindings"]
+
+[dependencies]
+async-trait = "0.1"
+thiserror = "2.0"
+bitflags = "2.6"
+serde = { version = "1.0", features = ["derive"] }
+
+# shared async runtime for the wrapping backends
+tokio = { version = "1", features = ["rt", "time", "sync", "io-util"], optional = true }
+futures-util = { version = "0.3", optional = true }
+tokio-stream = { version = "0.1", optional = true }
+
+# --- backend crates (each feature-gated) ---
+anker_solix = { version = "0.2", optional = true }
+jk_bms = { version = "0.2", optional = true }
+tokio-serial = { version = "5", optional = true }
+dalybms = { version = "0.1", optional = true, default-features = false, features = ["tokio-serial-async"] }
+victron_ble = { version = "1", optional = true }
+vedirect = { version = "0.2", optional = true }
+socketcan = { version = "3", optional = true }
+
+[features]
+default = ["anker", "pylontech-can"]
+
+# Wrapping backends
+anker = ["dep:anker_solix", "dep:tokio"]
+jk = ["dep:jk_bms", "dep:tokio-serial", "dep:tokio"]
+daly = ["dep:dalybms", "dep:tokio"]
+victron = ["dep:victron_ble", "dep:tokio", "dep:tokio-stream", "dep:futures-util"]
+vedirect = ["dep:vedirect"]
+
+# Native protocol decoders
+# The Pylontech CAN *decoder* is pure and cross-platform (always testable).
+pylontech-can = []
+# The CAN *socket* transport is Linux-only (BlueZ-style socketcan).
+can-socket = ["dep:socketcan", "pylontech-can"]
+
+# Convenience: everything that builds on the host (no Linux-only CAN socket).
+full = ["anker", "jk", "daly", "victron", "vedirect", "pylontech-can"]
+
+[package.metadata.docs.rs]
+features = ["full"]
