@@ -33,6 +33,10 @@ jobs:
             os: macos-latest
             target: aarch64-apple-darwin
             bin: jktool
+          - name: windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: jktool.exe
 
     steps:
       - name: Checkout repository
