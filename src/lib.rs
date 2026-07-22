@@ -35,9 +35,11 @@ mod error;
 mod types;
 
 pub mod backends;
+pub mod discovery;
 
 pub use battery::Battery;
 pub use capabilities::Capabilities;
+pub use discovery::{discover, resolve, DeviceClass, Discovered, DiscoverOptions};
 pub use error::{Error, Result};
 pub use types::{
     BatteryStatus, CellInfo, Command, DeviceInfo, PortInfo, PortKind,
