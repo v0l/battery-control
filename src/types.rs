@@ -171,22 +171,18 @@ impl BatteryStatus {
     }
 }
 
-/// A control command. Backends advertise which they support via
-/// [`crate::Capabilities`]; unsupported commands return [`crate::Error::Unsupported`].
+/// A control command, addressed by a free-form **id** rather than a fixed
+/// taxonomy — the same philosophy as ports/sensors/switches. Backends advertise
+/// coarse abilities via [`crate::Capabilities`] and validate the specific id;
+/// anything unsupported returns [`crate::Error::Unsupported`].
 #[derive(Debug, Clone)]
 pub enum Command {
-    /// Turn a port on/off, addressed by its [`PortInfo::id`].
-    SetPort { id: String, on: bool },
-    /// Enable/disable the charge MOSFET (BMS).
-    SetCharging(bool),
-    /// Enable/disable the discharge MOSFET (BMS).
-    SetDischarging(bool),
-    /// Enable/disable cell balancing (BMS).
-    SetBalancer(bool),
-    /// Set the charge ceiling, % (0–100).
-    SetChargeLimit(u8),
-    /// Write a named backend-specific setting.
-    SetSetting { name: String, value: String },
+    /// Turn a port or switch on/off by id, e.g. `"ac"`, `"usb_c1"`,
+    /// `"charging"`, `"discharging"`, `"balancer"`, `"heater"`, `"display"`.
+    Toggle { id: String, on: bool },
+    /// Set a named non-boolean value, e.g. `"charge_limit"` = `"80"`,
+    /// `"light"` = `"high"`, `"display_timeout"` = `"30"`.
+    Set { id: String, value: String },
 }
 
 #[cfg(test)]

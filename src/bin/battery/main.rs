@@ -50,13 +50,14 @@ enum Cmd {
     },
     /// Control a battery.
     ///
-    /// TARGET is a port id (e.g. `ac`, `dc`, `usb_c1`) or a reserved switch:
-    /// `charge`, `discharge`, `balancer`, `charge-limit`. Examples:
-    /// `battery set <id> ac on`, `battery set <id> charge-limit 80`.
+    /// TARGET is a port/switch id (e.g. `ac`, `dc`, `usb_c1`, `charging`,
+    /// `heater`, `display`) or a named setting (e.g. `charge_limit`, `light`).
+    /// If VALUE is on/off it's a toggle, otherwise it's a set. Examples:
+    /// `battery set <id> ac on`, `battery set <id> charge_limit 80`,
+    /// `battery set <id> light high`.
     Set {
         query: String,
         target: String,
-        /// `on`/`off` for switches/ports, or a number for `charge-limit`.
         value: String,
     },
 }
@@ -140,33 +141,18 @@ async fn connect(cli: &Cli, query: &str) -> Result<Box<dyn Battery>> {
     chosen.connect(cli.ble_secs).await
 }
 
-/// Reserved switch/setting words; anything else is treated as a port id.
+/// A boolean value maps to `Toggle`; anything else maps to `Set`.
 fn build_command(target: &str, value: &str) -> Result<Command> {
-    let on = || -> Result<bool> {
-        match value.to_ascii_lowercase().as_str() {
-            "on" | "true" | "1" => Ok(true),
-            "off" | "false" | "0" => Ok(false),
-            _ => Err(battery_control::Error::InvalidArgument(format!(
-                "expected on/off, got '{value}'"
-            ))),
-        }
-    };
-    Ok(match target.to_ascii_lowercase().as_str() {
-        "charge" => Command::SetCharging(on()?),
-        "discharge" => Command::SetDischarging(on()?),
-        "balancer" => Command::SetBalancer(on()?),
-        "charge-limit" | "charge_limit" => {
-            let pct: u8 = value
-                .parse()
-                .map_err(|_| battery_control::Error::InvalidArgument(format!("bad %: {value}")))?;
-            Command::SetChargeLimit(pct)
-        }
-        // Otherwise it's a port id, e.g. `ac`, `dc`, `usb_c1`.
-        port_id => Command::SetPort {
-            id: port_id.to_string(),
-            on: on()?,
-        },
-    })
+    // Normalize ids: lowercase, hyphens to underscores (charge-limit -> charge_limit).
+    let id = target.to_ascii_lowercase().replace('-', "_");
+    match value.to_ascii_lowercase().as_str() {
+        "on" | "true" | "1" => Ok(Command::Toggle { id, on: true }),
+        "off" | "false" | "0" => Ok(Command::Toggle { id, on: false }),
+        _ => Ok(Command::Set {
+            id,
+            value: value.to_string(),
+        }),
+    }
 }
 
 // Small convenience for a display label on DeviceInfo.

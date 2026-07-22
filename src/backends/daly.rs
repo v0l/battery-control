@@ -77,32 +77,40 @@ impl Battery for DalyBattery {
 
     async fn execute(&mut self, cmd: Command) -> Result<()> {
         match cmd {
-            Command::SetCharging(on) => {
-                require(self.capabilities(), Capabilities::TOGGLE_CHARGE)?;
-                self.bms
-                    .set_charge_mosfet(on)
-                    .await
-                    .map_err(|e| Error::Transport(format!("{e:?}")))
-            }
-            Command::SetDischarging(on) => {
-                require(self.capabilities(), Capabilities::TOGGLE_DISCHARGE)?;
-                self.bms
-                    .set_discharge_mosfet(on)
-                    .await
-                    .map_err(|e| Error::Transport(format!("{e:?}")))
-            }
-            Command::SetChargeLimit(pct) => {
+            Command::Toggle { id, on } => match id.as_str() {
+                "charging" => {
+                    require(self.capabilities(), Capabilities::TOGGLE_CHARGE)?;
+                    self.bms
+                        .set_charge_mosfet(on)
+                        .await
+                        .map_err(|e| Error::Transport(format!("{e:?}")))
+                }
+                "discharging" => {
+                    require(self.capabilities(), Capabilities::TOGGLE_DISCHARGE)?;
+                    self.bms
+                        .set_discharge_mosfet(on)
+                        .await
+                        .map_err(|e| Error::Transport(format!("{e:?}")))
+                }
+                other => Err(Error::InvalidArgument(format!(
+                    "'{other}' is not controllable on this device"
+                ))),
+            },
+            Command::Set { id, value } if id == "charge_limit" || id == "soc" => {
                 require(self.capabilities(), Capabilities::SET_CHARGE_LIMIT)?;
-                if pct > 100 {
-                    return Err(Error::InvalidArgument("charge limit > 100%".into()));
+                let pct: f32 = value
+                    .parse()
+                    .map_err(|_| Error::InvalidArgument(format!("bad %: {value}")))?;
+                if !(0.0..=100.0).contains(&pct) {
+                    return Err(Error::InvalidArgument("charge limit out of 0..100".into()));
                 }
                 // Daly exposes SOC calibration rather than a true charge ceiling.
                 self.bms
-                    .set_soc(pct as f32)
+                    .set_soc(pct)
                     .await
                     .map_err(|e| Error::Transport(format!("{e:?}")))
             }
-            _ => Err(Error::Unsupported),
+            Command::Set { .. } => Err(Error::Unsupported),
         }
     }
 }

@@ -113,20 +113,20 @@ impl Battery for AnkerBattery {
 
     async fn execute(&mut self, cmd: Command) -> Result<()> {
         match cmd {
-            Command::SetPort { id, on } => {
+            Command::Toggle { id, on } => {
                 require(self.capabilities(), Capabilities::TOGGLE_PORTS)?;
                 match id.as_str() {
                     "ac" => self.device.set_ac(on).await,
                     "dc" => self.device.set_dc(on).await,
                     other => {
                         return Err(Error::InvalidArgument(format!(
-                            "port '{other}' is not controllable on this device"
+                            "'{other}' is not controllable on this device"
                         )))
                     }
                 }
                 .map_err(|e| Error::Transport(e.to_string()))
             }
-            _ => Err(Error::Unsupported),
+            Command::Set { .. } => Err(Error::Unsupported),
         }
     }
 }

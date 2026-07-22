@@ -182,23 +182,22 @@ impl Battery for JkBattery {
 
     async fn execute(&mut self, cmd: Command) -> Result<()> {
         match cmd {
-            Command::SetCharging(on) => {
-                self.set_switch("charging", on, Capabilities::TOGGLE_CHARGE).await
+            Command::Toggle { id, on } => {
+                let cap = match id.as_str() {
+                    "charging" => Capabilities::TOGGLE_CHARGE,
+                    "discharging" => Capabilities::TOGGLE_DISCHARGE,
+                    "balancer" => Capabilities::TOGGLE_BALANCER,
+                    // Any other id is attempted as a named JK setting switch.
+                    _ => Capabilities::WRITE_SETTINGS,
+                };
+                self.set_switch(&id, on, cap).await
             }
-            Command::SetDischarging(on) => {
-                self.set_switch("discharging", on, Capabilities::TOGGLE_DISCHARGE)
-                    .await
-            }
-            Command::SetBalancer(on) => {
-                self.set_switch("balancer", on, Capabilities::TOGGLE_BALANCER).await
-            }
-            Command::SetSetting { name, value } => {
+            Command::Set { id, value } => {
                 require(self.capabilities(), Capabilities::WRITE_SETTINGS)?;
-                let frame = build_setting_write_frame(&name, &value, self.pack.protocol_version)
+                let frame = build_setting_write_frame(&id, &value, self.pack.protocol_version)
                     .ok_or(Error::Unsupported)?;
                 self.write_frame(&frame).await
             }
-            _ => Err(Error::Unsupported),
         }
     }
 }
