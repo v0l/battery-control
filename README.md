@@ -16,7 +16,7 @@ use.
 | Feature | Backend | Class | Transport | Read | Control |
 |---------|---------|-------|-----------|------|---------|
 | `anker` *(default)* | [`anker_solix`] Anker SOLIX | power station | BLE | SOC, ports, temp | AC/DC ports |
-| `jk` | [`jk_bms`] JK BMS | cell BMS | serial (async) | cells, temp, alarms | MOSFETs, settings |
+| `jk` | [`jk_bms`] JK BMS | cell BMS | serial + BLE (async) | cells, temp, alarms | MOSFETs, settings |
 | `daly` | [`dalybms`] Daly BMS | cell BMS | serial (async) | SOC, MOSFET, capacity | MOSFETs, SOC |
 | `victron` | [`victron_ble`] Victron | monitor | BLE broadcast | SOC, V/I | — (read-only) |
 | `pylontech-can` *(default)* | native Pylontech CAN | rack (EG4/SOK/…) | CAN frames | SOC, V/I/T, limits, alarms | — (read-only) |

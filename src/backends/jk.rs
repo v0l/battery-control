@@ -1,77 +1,18 @@
-//! Adapter for [`jk_bms`] (v0.2, async) — JIKONG (JK) battery management systems.
+//! Adapter for [`jk_bms`] (v0.3, async) — JIKONG (JK) battery management systems.
 //!
-//! The `jk_bms` *library* ships no transport (its serial/BLE/CAN transports live
-//! in the `jktool` binary), so this adapter provides a small async
-//! [`tokio_serial`]-based [`jk_bms::Transport`] and drives the crate's async
-//! read/write flow directly.
+//! As of 0.3 the `jk_bms` library ships its own transports behind features, so
+//! this adapter just wires up [`jk_bms::SerialTransport`] /
+//! [`jk_bms::BluetoothTransport`] and drives the crate's async read/write flow.
 
 use crate::battery::{require, Battery};
 use crate::types::{BatteryStatus, CellInfo, Command};
 use crate::{Capabilities, DeviceInfo, Error, Result};
 use async_trait::async_trait;
 use jk_bms::{
-    build_setting_write_frame, error_bitmask_to_strings, jk_read, JkSession, MybmmModule,
-    MybmmPack, Transport, MYBMM_BALANCE_CONTROL, MYBMM_CHARGE_CONTROL, MYBMM_DISCHARGE_CONTROL,
+    build_setting_write_frame, error_bitmask_to_strings, jk_read, BluetoothTransport, JkSession,
+    MybmmModule, MybmmPack, SerialTransport, Transport, MYBMM_BALANCE_CONTROL,
+    MYBMM_CHARGE_CONTROL, MYBMM_DISCHARGE_CONTROL,
 };
-use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio_serial::{SerialPortBuilderExt, SerialStream};
-
-/// Async serial transport implementing `jk_bms::Transport`.
-struct SerialTransport {
-    path: String,
-    baud: u32,
-    port: Option<SerialStream>,
-}
-
-impl SerialTransport {
-    fn new(path: impl Into<String>, baud: u32) -> Self {
-        Self {
-            path: path.into(),
-            baud,
-            port: None,
-        }
-    }
-}
-
-#[async_trait]
-impl Transport for SerialTransport {
-    async fn open(&mut self) -> jk_bms::Result<()> {
-        let port = tokio_serial::new(&self.path, self.baud)
-            .open_native_async()
-            .map_err(|e| jk_bms::JkError::TransportError(e.to_string()))?;
-        self.port = Some(port);
-        Ok(())
-    }
-
-    async fn close(&mut self) -> jk_bms::Result<()> {
-        self.port = None;
-        Ok(())
-    }
-
-    async fn write(&mut self, data: &[u8]) -> jk_bms::Result<usize> {
-        let port = self
-            .port
-            .as_mut()
-            .ok_or(jk_bms::JkError::TransportNotInitialized)?;
-        port.write(data)
-            .await
-            .map_err(|e| jk_bms::JkError::WriteFailed(e.raw_os_error().unwrap_or(-1)))
-    }
-
-    async fn read(&mut self, buf: &mut [u8]) -> jk_bms::Result<usize> {
-        let port = self
-            .port
-            .as_mut()
-            .ok_or(jk_bms::JkError::TransportNotInitialized)?;
-        // Bound each read; a lull just means "no data this round".
-        match tokio::time::timeout(Duration::from_millis(1000), port.read(buf)).await {
-            Ok(Ok(n)) => Ok(n),
-            Ok(Err(e)) => Err(jk_bms::JkError::ReadFailed(e.raw_os_error().unwrap_or(-1))),
-            Err(_) => Ok(0),
-        }
-    }
-}
 
 /// A JK BMS exposed through the unified [`Battery`] trait.
 pub struct JkBattery {
@@ -81,11 +22,14 @@ pub struct JkBattery {
 }
 
 impl JkBattery {
-    /// Open a JK BMS over a serial port (e.g. `"/dev/ttyUSB0"`, `9600`).
-    pub async fn open_serial(path: &str, baud: u32) -> Result<Self> {
+    async fn open_with(
+        transport_name: &str,
+        target: &str,
+        transport: Box<dyn Transport>,
+    ) -> Result<Self> {
         let mut pack = MybmmPack::new("jk");
-        pack.transport = "serial".into();
-        pack.target = path.into();
+        pack.transport = transport_name.into();
+        pack.target = target.into();
         let module = MybmmModule::new(
             "jk",
             MYBMM_CHARGE_CONTROL | MYBMM_DISCHARGE_CONTROL | MYBMM_BALANCE_CONTROL,
@@ -93,7 +37,7 @@ impl JkBattery {
         let mut session = JkSession {
             pp: pack.clone(),
             tp: module,
-            tp_handle: Some(Box::new(SerialTransport::new(path, baud))),
+            tp_handle: Some(transport),
         };
         session
             .open()
@@ -110,6 +54,17 @@ impl JkBattery {
             pack,
             info,
         })
+    }
+
+    /// Open a JK BMS over a serial port (e.g. `"/dev/ttyUSB0"`, `9600`).
+    pub async fn open_serial(path: &str, baud: u32) -> Result<Self> {
+        Self::open_with("serial", path, Box::new(SerialTransport::new(path, baud))).await
+    }
+
+    /// Connect to a JK BMS over BLE, addressed by its stable `Peripheral::id()`
+    /// string (macOS-safe). Uses the default JK notify characteristic.
+    pub async fn connect_bluetooth(id: &str) -> Result<Self> {
+        Self::open_with("bt", id, Box::new(BluetoothTransport::from_target(id))).await
     }
 
     async fn write_frame(&mut self, frame: &[u8]) -> Result<()> {

@@ -48,6 +48,8 @@ enum Locator {
     },
     #[cfg(feature = "jk")]
     JkSerial { port: String, baud: u32 },
+    #[cfg(feature = "jk")]
+    JkBle { id: String },
     #[cfg(feature = "daly")]
     DalySerial { port: String },
     #[cfg(test)]
@@ -97,6 +99,11 @@ impl Discovered {
                 let b = crate::backends::JkBattery::open_serial(port, *baud).await?;
                 Ok(Box::new(b))
             }
+            #[cfg(feature = "jk")]
+            Locator::JkBle { id } => {
+                let b = crate::backends::JkBattery::connect_bluetooth(id).await?;
+                Ok(Box::new(b))
+            }
             #[cfg(feature = "daly")]
             Locator::DalySerial { port } => {
                 let b = crate::backends::DalyBattery::open_serial(port)?;
@@ -129,6 +136,29 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
                 }
             }
             Err(e) => log::warn!("BLE scan failed: {e}"),
+        }
+    }
+
+    // JK BMSes that advertise over BLE (identified by their "JK"-prefixed name).
+    #[cfg(feature = "jk")]
+    {
+        match jk_bms::bt_scan().await {
+            Ok(devices) => {
+                for d in devices {
+                    let name = d.name.unwrap_or_default();
+                    if !name.to_ascii_uppercase().starts_with("JK") {
+                        continue;
+                    }
+                    found.push(Discovered {
+                        id: format!("ble:{}", d.id),
+                        label: name,
+                        backend: "jk",
+                        class: DeviceClass::Bms,
+                        locator: Locator::JkBle { id: d.id },
+                    });
+                }
+            }
+            Err(e) => log::warn!("JK BLE scan failed: {e}"),
         }
     }
 
