@@ -5,7 +5,7 @@
 //! [`jk_bms::BluetoothTransport`] and drives the crate's async read/write flow.
 
 use crate::battery::{require, Battery};
-use crate::types::{BatteryStatus, CellInfo, Command};
+use crate::types::{BatteryStatus, CellInfo, Command, Sensor, Switch};
 use crate::{Capabilities, DeviceInfo, Error, Result};
 use async_trait::async_trait;
 use jk_bms::{
@@ -99,11 +99,33 @@ fn to_status(p: &MybmmPack) -> BatteryStatus {
         })
         .collect();
 
-    let temps = &p.temps[..(p.ntemps.max(0) as usize).min(p.temps.len())];
-    let temperature_c = temps
-        .iter()
-        .cloned()
-        .fold(None, |m: Option<f32>, t| Some(m.map_or(t, |m| m.max(t))));
+    // Each probe becomes a named sensor; the MOSFET temp is its own sensor.
+    let n = (p.ntemps.max(0) as usize).min(p.temps.len());
+    let mut temperatures: Vec<Sensor> = (0..n)
+        .map(|i| Sensor {
+            id: format!("t{}", i + 1),
+            label: Some(format!("T{}", i + 1)),
+            celsius: p.temps[i],
+        })
+        .collect();
+    if p.power_tube_temp != 0.0 {
+        temperatures.push(Sensor {
+            id: "mosfet".into(),
+            label: Some("MOSFET".into()),
+            celsius: p.power_tube_temp,
+        });
+    }
+
+    let switch = |id: &str, label: &str, on: bool| Switch {
+        id: id.into(),
+        label: Some(label.into()),
+        on,
+    };
+    let switches = vec![
+        switch("balancer", "Balancer", p.balancing),
+        switch("heater", "Heater", p.heating),
+        switch("precharge", "Precharge", p.precharging),
+    ];
 
     let alarms = if p.error_bitmask != 0 {
         error_bitmask_to_strings(p.error_bitmask)
@@ -121,12 +143,13 @@ fn to_status(p: &MybmmPack) -> BatteryStatus {
         current: Some(p.current),
         power_in: (p.power > 0.0).then_some(p.power),
         power_out: (p.power < 0.0).then(|| p.power.abs()),
-        temperature_c,
+        temperatures,
         capacity_remaining_ah: Some(p.capacity_remaining),
         capacity_full_ah: Some(p.total_battery_capacity),
         cycles: Some(p.charging_cycles),
         charging: Some(p.charging),
         discharging: Some(p.discharging),
+        switches,
         cells,
         alarms,
         ..Default::default()

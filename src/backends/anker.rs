@@ -1,7 +1,7 @@
 //! Adapter for [`anker_solix`] — Anker SOLIX portable power stations over BLE.
 
 use crate::battery::{require, Battery};
-use crate::types::{BatteryStatus, Command, PortDirection, PortInfo};
+use crate::types::{BatteryStatus, Command, PortDirection, PortInfo, Sensor};
 use crate::{Capabilities, DeviceInfo, Error, Result};
 use anker_solix::{Device, PortStatus as AnkerPort, Telemetry};
 use async_trait::async_trait;
@@ -68,7 +68,15 @@ fn to_status(t: &Telemetry) -> BatteryStatus {
     BatteryStatus {
         soc: t.battery_percentage.map(|v| v as f32),
         soh: t.battery_health.map(|v| v as f32),
-        temperature_c: t.temperature_c.map(|v| v as f32),
+        temperatures: t
+            .temperature_c
+            .map(|v| Sensor {
+                id: "battery".into(),
+                label: Some("Battery".into()),
+                celsius: v as f32,
+            })
+            .into_iter()
+            .collect(),
         power_in: t.ac_power_in.map(|v| v as f32),
         power_out: t.power_out.map(|v| v as f32),
         time_remaining_h: t.time_remaining_hours.map(|v| v as f32),

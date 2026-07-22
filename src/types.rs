@@ -59,6 +59,26 @@ pub struct PortInfo {
     pub watts: Option<f32>,
 }
 
+/// A named temperature sensor. Devices expose different probes (cell groups,
+/// MOSFET, ambient, balancer, ...), so temperatures are free-form.
+#[derive(Debug, Clone, Serialize)]
+pub struct Sensor {
+    /// Stable id, e.g. `"t1"`, `"mosfet"`, `"ambient"`.
+    pub id: String,
+    /// Optional human name, e.g. `"MOSFET"`.
+    pub label: Option<String>,
+    pub celsius: f32,
+}
+
+/// A named on/off switch on a device (heater, precharge, balancer, ...).
+#[derive(Debug, Clone, Serialize)]
+pub struct Switch {
+    /// Stable id, e.g. `"heater"`, `"precharge"`, `"balancer"`.
+    pub id: String,
+    pub label: Option<String>,
+    pub on: bool,
+}
+
 /// A normalized snapshot of a battery's state.
 ///
 /// `current` is signed: **positive = charging**, **negative = discharging**.
@@ -76,8 +96,8 @@ pub struct BatteryStatus {
     pub power_in: Option<f32>,
     /// Instantaneous power out of the battery, watts.
     pub power_out: Option<f32>,
-    /// Representative temperature, °C.
-    pub temperature_c: Option<f32>,
+    /// Temperature sensors (free-form; devices expose different probes).
+    pub temperatures: Vec<Sensor>,
     /// Estimated time to full/empty, hours.
     pub time_remaining_h: Option<f32>,
     /// Remaining capacity, amp-hours.
@@ -87,9 +107,14 @@ pub struct BatteryStatus {
     /// Charge cycle count.
     pub cycles: Option<u32>,
 
-    /// Charge/discharge MOSFET states (BMS-class), if reported.
+    /// Charge/discharge MOSFET states (BMS-class), if reported. These are
+    /// convenience accessors for the two near-universal toggles; any other
+    /// device switches (heater, precharge, balancer, ...) live in [`switches`].
     pub charging: Option<bool>,
     pub discharging: Option<bool>,
+    /// Free-form device switches beyond charge/discharge (heater, precharge,
+    /// balancer, ...).
+    pub switches: Vec<Switch>,
 
     /// BMS-recommended limits (Pylontech-class), if reported.
     pub charge_current_limit_a: Option<f32>,
@@ -104,6 +129,28 @@ pub struct BatteryStatus {
 }
 
 impl BatteryStatus {
+    /// The highest reported temperature (a representative value), if any.
+    pub fn temperature_c(&self) -> Option<f32> {
+        self.temperatures
+            .iter()
+            .map(|s| s.celsius)
+            .fold(None, |m, c| Some(m.map_or(c, |m: f32| m.max(c))))
+    }
+
+    /// A specific sensor's temperature by id.
+    pub fn temperature(&self, id: &str) -> Option<f32> {
+        self.temperatures.iter().find(|s| s.id == id).map(|s| s.celsius)
+    }
+
+    /// A switch state by id (also covers `"charging"`/`"discharging"`).
+    pub fn switch(&self, id: &str) -> Option<bool> {
+        match id {
+            "charging" => self.charging,
+            "discharging" => self.discharging,
+            _ => self.switches.iter().find(|s| s.id == id).map(|s| s.on),
+        }
+    }
+
     /// Highest cell voltage, if any cells are present.
     pub fn cell_max(&self) -> Option<f32> {
         self.cells.iter().filter_map(|c| c.voltage).fold(None, |m, v| {

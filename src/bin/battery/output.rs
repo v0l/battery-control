@@ -54,19 +54,27 @@ fn render_text(info: &DeviceInfo, s: &BatteryStatus) -> String {
     if s.power_out.is_some() {
         row(&mut o, "Power out:", opt(&s.power_out, " W"));
     }
-    if s.temperature_c.is_some() {
-        row(&mut o, "Temperature:", opt(&s.temperature_c, " °C"));
+    // Temperatures: one row if a single probe, else one row per named sensor.
+    match s.temperatures.as_slice() {
+        [] => {}
+        [one] => row(&mut o, "Temperature:", format!("{} °C", one.celsius)),
+        many => {
+            for sensor in many {
+                let name = sensor.label.as_deref().unwrap_or(&sensor.id);
+                row(&mut o, &format!("Temp {name}:"), format!("{} °C", sensor.celsius));
+            }
+        }
     }
     if s.charging.is_some() || s.discharging.is_some() {
         row(
             &mut o,
             "MOSFETs:",
-            format!(
-                "chg {} / dis {}",
-                onoff(s.charging),
-                onoff(s.discharging)
-            ),
+            format!("chg {} / dis {}", onoff(s.charging), onoff(s.discharging)),
         );
+    }
+    for sw in &s.switches {
+        let name = sw.label.as_deref().unwrap_or(&sw.id);
+        row(&mut o, &format!("{name}:"), if sw.on { "on" } else { "off" }.to_string());
     }
     if s.charge_current_limit_a.is_some() || s.discharge_current_limit_a.is_some() {
         row(

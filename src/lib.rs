@@ -42,5 +42,5 @@ pub use capabilities::Capabilities;
 pub use discovery::{discover, resolve, DeviceClass, Discovered, DiscoverOptions};
 pub use error::{Error, Result};
 pub use types::{
-    BatteryStatus, CellInfo, Command, DeviceInfo, PortDirection, PortInfo,
+    BatteryStatus, CellInfo, Command, DeviceInfo, PortDirection, PortInfo, Sensor, Switch,
 };

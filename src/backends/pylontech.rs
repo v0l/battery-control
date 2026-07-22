@@ -11,7 +11,7 @@
 //! [`BatteryStatus`]. The actual CAN socket (Linux `socketcan`) lives behind the
 //! `can-socket` feature.
 
-use crate::types::BatteryStatus;
+use crate::types::{BatteryStatus, Sensor};
 
 fn u16le(d: &[u8], i: usize) -> u16 {
     u16::from_le_bytes([d[i], d[i + 1]])
@@ -95,7 +95,15 @@ impl PylontechState {
             // Pylontech current is + charging / - discharging.
             power_in: power.filter(|p| *p > 0.0),
             power_out: power.filter(|p| *p < 0.0).map(f32::abs),
-            temperature_c: self.temperature_c,
+            temperatures: self
+                .temperature_c
+                .map(|c| Sensor {
+                    id: "pack".into(),
+                    label: Some("Pack".into()),
+                    celsius: c,
+                })
+                .into_iter()
+                .collect(),
             charge_current_limit_a: self.charge_current_limit,
             discharge_current_limit_a: self.discharge_current_limit,
             charging: self.charge_enabled,
@@ -162,7 +170,7 @@ mod tests {
         assert_eq!(st.soh, Some(100.0));
         assert!((st.voltage.unwrap() - 53.12).abs() < 1e-3);
         assert!((st.current.unwrap() - (-15.0)).abs() < 1e-3);
-        assert!((st.temperature_c.unwrap() - 21.5).abs() < 1e-3);
+        assert!((st.temperature_c().unwrap() - 21.5).abs() < 1e-3);
         // discharging => power_out positive, power_in none
         assert!(st.power_in.is_none());
         assert!((st.power_out.unwrap() - 53.12 * 15.0).abs() < 0.1);
