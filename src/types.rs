@@ -119,6 +119,10 @@ pub struct BatteryStatus {
     /// BMS-recommended limits (Pylontech-class), if reported.
     pub charge_current_limit_a: Option<f32>,
     pub discharge_current_limit_a: Option<f32>,
+    /// Configured charge ceiling / discharge floor as a state-of-charge %,
+    /// if the device exposes user charge limits.
+    pub soc_limit_max: Option<f32>,
+    pub soc_limit_min: Option<f32>,
 
     /// Per-cell detail (empty for non-BMS devices).
     pub cells: Vec<CellInfo>,

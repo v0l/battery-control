@@ -61,6 +61,7 @@ fn to_status(t: &Telemetry) -> BatteryStatus {
         port("solar", "Solar", &t.solar),
         port("usb_c1", "USB-C 1", &t.usb_c1),
         port("usb_c2", "USB-C 2", &t.usb_c2),
+        port("usb_c3", "USB-C 3", &t.usb_c3),
         port("usb_a1", "USB-A 1", &t.usb_a1),
     ];
     ports.retain(|p| p.on.is_some() || p.watts.is_some());
@@ -79,6 +80,8 @@ fn to_status(t: &Telemetry) -> BatteryStatus {
             .collect(),
         power_in: t.ac_power_in.map(|v| v as f32),
         power_out: t.power_out.map(|v| v as f32),
+        soc_limit_max: t.max_battery_percentage.map(|v| v as f32),
+        soc_limit_min: t.min_battery_percentage.map(|v| v as f32),
         time_remaining_h: t.time_remaining_hours.map(|v| v as f32),
         ports,
         ..Default::default()

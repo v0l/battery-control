@@ -87,6 +87,17 @@ fn render_text(info: &DeviceInfo, s: &BatteryStatus) -> String {
             ),
         );
     }
+    if s.soc_limit_min.is_some() || s.soc_limit_max.is_some() {
+        row(
+            &mut o,
+            "Charge limits:",
+            format!(
+                "{}–{}",
+                opt(&s.soc_limit_min, "%"),
+                opt(&s.soc_limit_max, "%")
+            ),
+        );
+    }
     if let Some(h) = s.time_remaining_h {
         row(&mut o, "Time remaining:", format!("{h:.1} h"));
     }
