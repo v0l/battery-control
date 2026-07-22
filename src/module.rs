@@ -1,12 +1,14 @@
 use crate::error::{JkError, Result};
 use crate::session::JkSession;
 use crate::pack::MybmmPack;
+use async_trait::async_trait;
 
+#[async_trait]
 pub trait Transport: Send {
-    fn open(&mut self) -> Result<()>;
-    fn close(&mut self) -> Result<()>;
-    fn write(&mut self, data: &[u8]) -> Result<usize>;
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize>;
+    async fn open(&mut self) -> Result<()>;
+    async fn close(&mut self) -> Result<()>;
+    async fn write(&mut self, data: &[u8]) -> Result<usize>;
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize>;
 }
 
 #[derive(Clone, Debug)]
@@ -52,11 +54,11 @@ pub fn jk_new(pp: MybmmPack, tp: MybmmModule) -> Result<JkSession> {
     JkSession::new(pp, tp)
 }
 
-pub fn jk_open(session: &mut JkSession) -> Result<()> {
-    session.open()
+pub async fn jk_open(session: &mut JkSession) -> Result<()> {
+    session.open().await
 }
 
-pub fn jk_read(session: &mut JkSession, pp: &mut MybmmPack) -> Result<()> {
+pub async fn jk_read(session: &mut JkSession, pp: &mut MybmmPack) -> Result<()> {
     use crate::protocol::{getdata, get_info_command, get_cell_info_command};
 
     let mut data = vec![0u8; 2048];
@@ -65,10 +67,10 @@ pub fn jk_read(session: &mut JkSession, pp: &mut MybmmPack) -> Result<()> {
     let info_cmd = get_info_command();
     while retries > 0 {
         if let Some(ref mut handle) = session.tp_handle {
-            let written = handle.write(&info_cmd)?;
+            let written = handle.write(&info_cmd).await?;
             log::debug!("Wrote {} bytes for getInfo", written);
             
-            let bytes = handle.read(&mut data)?;
+            let bytes = handle.read(&mut data).await?;
             log::debug!("Read {} bytes for getInfo", bytes);
             
             let flags = getdata(pp, &data[..bytes]);
@@ -77,19 +79,19 @@ pub fn jk_read(session: &mut JkSession, pp: &mut MybmmPack) -> Result<()> {
             }
         }
         retries -= 1;
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
 
     let cell_info_cmd = get_cell_info_command();
     if let Some(ref mut handle) = session.tp_handle {
-        let written = handle.write(&cell_info_cmd)?;
+        let written = handle.write(&cell_info_cmd).await?;
         log::debug!("Wrote {} bytes for getCellInfo", written);
     }
 
     retries = 5;
     while retries > 0 {
         if let Some(ref mut handle) = session.tp_handle {
-            let bytes = handle.read(&mut data)?;
+            let bytes = handle.read(&mut data).await?;
             log::debug!("Read {} bytes for getCellInfo", bytes);
             
             let flags = getdata(pp, &data[..bytes]);
@@ -107,8 +109,8 @@ pub fn jk_read(session: &mut JkSession, pp: &mut MybmmPack) -> Result<()> {
     }
 }
 
-pub fn jk_close(session: &mut JkSession) -> Result<()> {
-    session.close()
+pub async fn jk_close(session: &mut JkSession) -> Result<()> {
+    session.close().await
 }
 
 pub fn jk_control(session: &mut JkSession, op: u32, action: u32) -> Result<()> {

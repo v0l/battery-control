@@ -11,6 +11,7 @@ pub use protocol::{getdata, get_info_command, get_cell_info_command, get_setting
 pub use session::JkSession;
 pub use module::{MybmmModule, Transport, jk_init, jk_new, jk_open, jk_read, jk_close, jk_control, MYBMM_CHARGE_CONTROL, MYBMM_DISCHARGE_CONTROL, MYBMM_BALANCE_CONTROL};
 pub use jk_info::{JkInfo, parse_info_strings};
+pub use async_trait::async_trait;
 
 pub const JK_MODULE_NAME: &str = "jk";
 pub const JK_MODULE_TYPE: i32 = 1;

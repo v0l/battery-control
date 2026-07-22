@@ -1,11 +1,10 @@
-use jk_bms::{Transport, Result, JkError};
-use std::sync::{Arc, Mutex};
+use jk_bms::{Transport, Result, JkError, async_trait};
+use std::pin::Pin;
 use std::time::Duration;
-use tokio::runtime::Runtime;
 
-use btleplug::api::{BDAddr, Central, Manager as _, Peripheral as _, ScanFilter, WriteType, Characteristic};
+use btleplug::api::{BDAddr, Central, Manager as _, Peripheral as _, ScanFilter, WriteType, Characteristic, ValueNotification};
 use btleplug::platform::{Manager, Peripheral};
-use futures_util::StreamExt;
+use futures_util::{Stream, StreamExt};
 use uuid::Uuid;
 
 pub struct BtDevice {
@@ -14,54 +13,51 @@ pub struct BtDevice {
     pub rssi: Option<i16>,
 }
 
-pub fn scan() -> Result<Vec<BtDevice>> {
-    let runtime = Runtime::new()
-        .map_err(|e| JkError::TransportError(format!("tokio runtime: {}", e)))?;
+pub async fn scan() -> Result<Vec<BtDevice>> {
+    let manager = Manager::new().await
+        .map_err(|e| JkError::TransportError(format!("bt manager: {}", e)))?;
 
-    runtime.block_on(async {
-        let manager = Manager::new().await
-            .map_err(|e| JkError::TransportError(format!("bt manager: {}", e)))?;
+    let adapters = manager.adapters().await
+        .map_err(|e| JkError::TransportError(format!("bt adapters: {}", e)))?;
+    let adapter = adapters.into_iter().next()
+        .ok_or_else(|| JkError::TransportError("no bluetooth adapter found".to_string()))?;
 
-        let adapters = manager.adapters().await
-            .map_err(|e| JkError::TransportError(format!("bt adapters: {}", e)))?;
-        let adapter = adapters.into_iter().next()
-            .ok_or_else(|| JkError::TransportError("no bluetooth adapter found".to_string()))?;
+    adapter.start_scan(ScanFilter::default()).await
+        .map_err(|e| JkError::TransportError(format!("bt scan: {}", e)))?;
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
-        adapter.start_scan(ScanFilter::default()).await
-            .map_err(|e| JkError::TransportError(format!("bt scan: {}", e)))?;
-        tokio::time::sleep(Duration::from_secs(3)).await;
+    let peripherals = adapter.peripherals().await
+        .map_err(|e| JkError::TransportError(format!("bt peripherals: {}", e)))?;
 
-        let peripherals = adapter.peripherals().await
-            .map_err(|e| JkError::TransportError(format!("bt peripherals: {}", e)))?;
+    let mut devices = Vec::new();
+    for peripheral in peripherals {
+        let mut name = None;
+        let mut rssi = None;
 
-        let mut devices = Vec::new();
-        for peripheral in peripherals {
-            let mut name = None;
-            let mut rssi = None;
-
-            if let Ok(Some(props)) = peripheral.properties().await {
-                name = props.local_name;
-                rssi = props.rssi;
-            }
-
-            devices.push(BtDevice {
-                name,
-                address: peripheral.address().to_string(),
-                rssi,
-            });
+        if let Ok(Some(props)) = peripheral.properties().await {
+            name = props.local_name;
+            rssi = props.rssi;
         }
 
-        Ok(devices)
-    })
+        devices.push(BtDevice {
+            name,
+            address: peripheral.address().to_string(),
+            rssi,
+        });
+    }
+
+    Ok(devices)
 }
+
+type NotificationStream = Pin<Box<dyn Stream<Item = ValueNotification> + Send>>;
 
 pub struct BluetoothTransport {
     target: String,
     char_uuid_str: String,
-    runtime: Option<Runtime>,
     peripheral: Option<Peripheral>,
     characteristic: Option<Characteristic>,
-    buffer: Arc<Mutex<Vec<u8>>>,
+    notifications: Option<NotificationStream>,
+    leftover: Vec<u8>,
 }
 
 impl BluetoothTransport {
@@ -87,10 +83,10 @@ impl BluetoothTransport {
         Self {
             target: target.to_string(),
             char_uuid_str: char_uuid,
-            runtime: None,
             peripheral: None,
             characteristic: None,
-            buffer: Arc::new(Mutex::new(Vec::new())),
+            notifications: None,
+            leftover: Vec::new(),
         }
     }
 
@@ -102,124 +98,113 @@ impl BluetoothTransport {
     }
 }
 
+#[async_trait]
 impl Transport for BluetoothTransport {
-    fn open(&mut self) -> Result<()> {
-        let runtime = Runtime::new()
-            .map_err(|e| JkError::TransportError(format!("tokio runtime: {}", e)))?;
-
+    async fn open(&mut self) -> Result<()> {
         let target = self.target.clone();
         let char_uuid_str = self.char_uuid_str.clone();
-        let buffer = self.buffer.clone();
 
-        let (peripheral, characteristic) = runtime.block_on(async {
-            let manager = Manager::new().await
-                .map_err(|e| JkError::TransportError(format!("bt manager: {}", e)))?;
+        let manager = Manager::new().await
+            .map_err(|e| JkError::TransportError(format!("bt manager: {}", e)))?;
 
-            let adapters = manager.adapters().await
-                .map_err(|e| JkError::TransportError(format!("bt adapters: {}", e)))?;
-            let adapter = adapters.into_iter().next()
-                .ok_or_else(|| JkError::TransportError("no bluetooth adapter found".to_string()))?;
+        let adapters = manager.adapters().await
+            .map_err(|e| JkError::TransportError(format!("bt adapters: {}", e)))?;
+        let adapter = adapters.into_iter().next()
+            .ok_or_else(|| JkError::TransportError("no bluetooth adapter found".to_string()))?;
 
-            adapter.start_scan(ScanFilter::default()).await
-                .map_err(|e| JkError::TransportError(format!("bt scan: {}", e)))?;
-            tokio::time::sleep(Duration::from_secs(3)).await;
+        adapter.start_scan(ScanFilter::default()).await
+            .map_err(|e| JkError::TransportError(format!("bt scan: {}", e)))?;
+        tokio::time::sleep(Duration::from_secs(3)).await;
 
-            let peripherals = adapter.peripherals().await
-                .map_err(|e| JkError::TransportError(format!("bt peripherals: {}", e)))?;
+        let peripherals = adapter.peripherals().await
+            .map_err(|e| JkError::TransportError(format!("bt peripherals: {}", e)))?;
 
-            let target_addr: BDAddr = target.parse()
-                .map_err(|_| JkError::TransportError(format!("invalid mac address: {}", target)))?;
+        let target_addr: BDAddr = target.parse()
+            .map_err(|_| JkError::TransportError(format!("invalid mac address: {}", target)))?;
 
-            let peripheral = peripherals.into_iter()
-                .find(|p| p.address() == target_addr)
-                .ok_or_else(|| JkError::TransportError(format!("device {} not found", target)))?;
+        let peripheral = peripherals.into_iter()
+            .find(|p| p.address() == target_addr)
+            .ok_or_else(|| JkError::TransportError(format!("device {} not found", target)))?;
 
-            peripheral.connect().await
-                .map_err(|e| JkError::TransportError(format!("bt connect: {}", e)))?;
+        peripheral.connect().await
+            .map_err(|e| JkError::TransportError(format!("bt connect: {}", e)))?;
 
-            peripheral.discover_services().await
-                .map_err(|e| JkError::TransportError(format!("bt discover: {}", e)))?;
+        peripheral.discover_services().await
+            .map_err(|e| JkError::TransportError(format!("bt discover: {}", e)))?;
 
-            let characteristics = peripheral.characteristics();
-            let char_uuid = Uuid::parse_str(&char_uuid_str)
-                .map_err(|e| JkError::TransportError(format!("invalid uuid: {}", e)))?;
+        let characteristics = peripheral.characteristics();
+        let char_uuid = Uuid::parse_str(&char_uuid_str)
+            .map_err(|e| JkError::TransportError(format!("invalid uuid: {}", e)))?;
 
-            let characteristic = characteristics.into_iter()
-                .find(|c| c.uuid == char_uuid)
-                .ok_or_else(|| JkError::TransportError(format!("characteristic {} not found", char_uuid_str)))?;
+        let characteristic = characteristics.into_iter()
+            .find(|c| c.uuid == char_uuid)
+            .ok_or_else(|| JkError::TransportError(format!("characteristic {} not found", char_uuid_str)))?;
 
-            peripheral.subscribe(&characteristic).await
-                .map_err(|e| JkError::TransportError(format!("bt subscribe: {}", e)))?;
+        peripheral.subscribe(&characteristic).await
+            .map_err(|e| JkError::TransportError(format!("bt subscribe: {}", e)))?;
 
-            let mut notifications = peripheral.notifications().await
-                .map_err(|e| JkError::TransportError(format!("bt notifications: {}", e)))?;
+        let notifications = peripheral.notifications().await
+            .map_err(|e| JkError::TransportError(format!("bt notifications: {}", e)))?;
 
-            let buffer_clone = buffer.clone();
-            tokio::spawn(async move {
-                while let Some(notification) = notifications.next().await {
-                    if let Ok(mut buf) = buffer_clone.lock() {
-                        buf.extend_from_slice(&notification.value);
-                    }
-                }
-            });
-
-            Ok::<_, JkError>((peripheral, characteristic))
-        })?;
-
-        self.runtime = Some(runtime);
         self.peripheral = Some(peripheral);
         self.characteristic = Some(characteristic);
+        self.notifications = Some(notifications);
+        self.leftover.clear();
         Ok(())
     }
 
-    fn close(&mut self) -> Result<()> {
-        if let Some(runtime) = self.runtime.take() {
-            if let Some(peripheral) = self.peripheral.take() {
-                let _ = runtime.block_on(async {
-                    let _ = peripheral.disconnect().await;
-                });
-            }
+    async fn close(&mut self) -> Result<()> {
+        self.notifications = None;
+        if let Some(peripheral) = self.peripheral.take() {
+            let _ = peripheral.disconnect().await;
         }
         self.characteristic = None;
         Ok(())
     }
 
-    fn write(&mut self, data: &[u8]) -> Result<usize> {
-        let runtime = self.runtime.as_ref().ok_or(JkError::TransportNotInitialized)?;
+    async fn write(&mut self, data: &[u8]) -> Result<usize> {
         let peripheral = self.peripheral.as_ref().ok_or(JkError::TransportNotInitialized)?;
         let characteristic = self.characteristic.as_ref().ok_or(JkError::TransportNotInitialized)?;
 
-        // Clear buffer before write (matches C behavior)
-        {
-            let mut buf = self.buffer.lock()
-                .map_err(|_| JkError::TransportError("mutex poisoned".to_string()))?;
-            buf.clear();
-        }
+        // Drop any stale buffered notifications before issuing a new request.
+        self.leftover.clear();
 
-        runtime.block_on(async {
-            peripheral.write(characteristic, data, WriteType::WithoutResponse)
-                .await
-                .map_err(|_e| JkError::WriteFailed(0))
-        })?;
+        peripheral.write(characteristic, data, WriteType::WithoutResponse)
+            .await
+            .map_err(|_e| JkError::WriteFailed(0))?;
 
         Ok(data.len())
     }
 
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        let start = std::time::Instant::now();
-        while start.elapsed() < Duration::from_secs(3) {
-            let mut buffer = self.buffer.lock()
-                .map_err(|_| JkError::TransportError("mutex poisoned".to_string()))?;
-
-            if !buffer.is_empty() {
-                let len = std::cmp::min(buffer.len(), buf.len());
-                buf[..len].copy_from_slice(&buffer[..len]);
-                buffer.drain(..len);
-                return Ok(len);
-            }
-            drop(buffer);
-            std::thread::sleep(Duration::from_millis(100));
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        // Serve any leftover bytes from a previous notification first.
+        if !self.leftover.is_empty() {
+            let len = std::cmp::min(self.leftover.len(), buf.len());
+            buf[..len].copy_from_slice(&self.leftover[..len]);
+            self.leftover.drain(..len);
+            return Ok(len);
         }
-        Ok(0)
+
+        let stream = self.notifications.as_mut().ok_or(JkError::TransportNotInitialized)?;
+
+        // Await the first notification (BLE-driven, no polling).
+        let first = match tokio::time::timeout(Duration::from_secs(3), stream.next()).await {
+            Ok(Some(n)) => n.value,
+            _ => return Ok(0),
+        };
+        let mut assembled = first;
+
+        // Drain any further notifications that arrive back-to-back so a full
+        // BMS frame is returned in a single read, without a fixed sleep.
+        while let Ok(Some(n)) = tokio::time::timeout(Duration::from_millis(50), stream.next()).await {
+            assembled.extend_from_slice(&n.value);
+        }
+
+        let len = std::cmp::min(assembled.len(), buf.len());
+        buf[..len].copy_from_slice(&assembled[..len]);
+        if len < assembled.len() {
+            self.leftover = assembled.split_off(len);
+        }
+        Ok(len)
     }
 }

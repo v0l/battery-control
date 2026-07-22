@@ -1,6 +1,20 @@
-use jk_bms::{Transport, Result, JkError};
-use std::time::Duration;
-use std::os::unix::io::RawFd;
+use jk_bms::{Transport, Result, JkError, async_trait};
+use std::time::{Duration, Instant};
+use std::os::unix::io::{AsRawFd, RawFd};
+use tokio::io::unix::AsyncFd;
+
+/// Minimal owned wrapper so a RawFd can be registered with tokio's reactor.
+struct Fd(RawFd);
+impl AsRawFd for Fd {
+    fn as_raw_fd(&self) -> RawFd { self.0 }
+}
+impl Drop for Fd {
+    fn drop(&mut self) {
+        if self.0 >= 0 {
+            unsafe { libc::close(self.0); }
+        }
+    }
+}
 
 /// CAN frame structure for Linux CAN sockets
 #[repr(C)]
@@ -13,12 +27,11 @@ struct CanFrame {
 
 const CAN_SFF_MASK: u32 = 0x1FFFFFF;
 
-#[derive(Debug, Clone)]
 pub struct CanTransport {
     interface: String,
     rx_id: u32,
     tx_id: u32,
-    fd: Option<RawFd>,
+    afd: Option<AsyncFd<Fd>>,
 }
 
 impl CanTransport {
@@ -27,7 +40,7 @@ impl CanTransport {
             interface: interface.to_string(),
             rx_id,
             tx_id,
-            fd: None,
+            afd: None,
         }
     }
 
@@ -163,39 +176,25 @@ impl CanTransport {
         Ok(fd)
     }
 
-    fn write_can(&mut self, frame: &CanFrame) -> Result<usize> {
-        if let Some(fd) = self.fd {
-            let bytes_written = unsafe {
-                libc::write(fd, &frame as *const _ as *const libc::c_void, std::mem::size_of::<CanFrame>())
-            };
-
-            if bytes_written < 0 {
-                return Err(JkError::WriteFailed(errno()));
-            }
-
-            Ok(bytes_written as usize)
+    fn write_can(fd: RawFd, frame: &CanFrame) -> std::io::Result<usize> {
+        let bytes_written = unsafe {
+            libc::write(fd, frame as *const _ as *const libc::c_void, std::mem::size_of::<CanFrame>())
+        };
+        if bytes_written < 0 {
+            Err(std::io::Error::last_os_error())
         } else {
-            Err(JkError::TransportNotInitialized)
+            Ok(bytes_written as usize)
         }
     }
 
-    fn read_can(&mut self, frame: &mut CanFrame) -> Result<usize> {
-        if let Some(fd) = self.fd {
-            let bytes_read = unsafe {
-                libc::read(fd, frame as *mut _ as *mut libc::c_void, std::mem::size_of::<CanFrame>())
-            };
-
-            if bytes_read < 0 {
-                let err = errno();
-                if err == libc::EAGAIN || err == libc::EWOULDBLOCK {
-                    return Ok(0);
-                }
-                return Err(JkError::ReadFailed(err));
-            }
-
-            Ok(bytes_read as usize)
+    fn read_can(fd: RawFd, frame: &mut CanFrame) -> std::io::Result<usize> {
+        let bytes_read = unsafe {
+            libc::read(fd, frame as *mut _ as *mut libc::c_void, std::mem::size_of::<CanFrame>())
+        };
+        if bytes_read < 0 {
+            Err(std::io::Error::last_os_error())
         } else {
-            Err(JkError::TransportNotInitialized)
+            Ok(bytes_read as usize)
         }
     }
 }
@@ -204,32 +203,31 @@ fn errno() -> i32 {
     unsafe { *libc::__errno_location() }
 }
 
+#[async_trait]
 impl Transport for CanTransport {
-    fn open(&mut self) -> Result<()> {
+    async fn open(&mut self) -> Result<()> {
         let fd = self.open_socket()?;
         
         // Try to bring up the interface (may need root)
         use std::process::Command;
         let _ = Command::new("ip").args(["link", "set", &self.interface, "up"]).output();
-            
-        self.fd = Some(fd);
+
+        let afd = AsyncFd::new(Fd(fd))
+            .map_err(|e| JkError::TransportError(format!("register CAN fd with reactor: {}", e)))?;
+        self.afd = Some(afd);
         log::info!("CAN transport opened on {} with RX=0x{:07X}, TX=0x{:07X}", 
                    self.interface, self.rx_id, self.tx_id);
         Ok(())
     }
 
-    fn close(&mut self) -> Result<()> {
-        if let Some(fd) = self.fd {
-            unsafe { libc::close(fd); }
-            self.fd = None;
-        }
+    async fn close(&mut self) -> Result<()> {
+        // Dropping the AsyncFd deregisters from the reactor and closes the fd.
+        self.afd = None;
         Ok(())
     }
 
-    fn write(&mut self, data: &[u8]) -> Result<usize> {
-        if self.fd.is_none() {
-            return Err(JkError::TransportNotInitialized);
-        }
+    async fn write(&mut self, data: &[u8]) -> Result<usize> {
+        let afd = self.afd.as_ref().ok_or(JkError::TransportNotInitialized)?;
 
         if data.len() > 8 {
             log::warn!("CAN frame too large ({} bytes), truncating to 8 bytes", data.len());
@@ -240,47 +238,52 @@ impl Transport for CanTransport {
             data: [0u8; 8],
             len: data.len().min(8) as u8,
         };
-
         frame.data[..frame.len as usize].copy_from_slice(&data[..frame.len as usize]);
 
-        match self.write_can(&frame) {
-            Ok(_) => Ok(frame.len as usize),
-            Err(e) => Err(e),
+        loop {
+            let mut guard = afd.writable().await
+                .map_err(|_| JkError::WriteFailed(-1))?;
+            match guard.try_io(|inner| Self::write_can(inner.as_raw_fd(), &frame)) {
+                Ok(res) => return res.map(|_| frame.len as usize).map_err(|_| JkError::WriteFailed(-1)),
+                Err(_would_block) => continue,
+            }
         }
     }
 
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        if self.fd.is_none() {
-            return Err(JkError::TransportNotInitialized);
-        }
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+        let afd = self.afd.as_ref().ok_or(JkError::TransportNotInitialized)?;
 
-        let mut frame = CanFrame { can_id: 0, data: [0u8; 8], len: 0 };
-
-        let start = std::time::Instant::now();
+        let deadline = Instant::now() + Duration::from_secs(3);
         let mut total = 0;
 
-        while total < buf.len() && start.elapsed() < Duration::from_secs(3) {
-            match self.read_can(&mut frame) {
-                Ok(0) => {
-                    std::thread::sleep(Duration::from_millis(10));
-                    continue;
-                }
-                Ok(_) => {
+        while total < buf.len() {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() { break; }
+
+            let mut guard = match tokio::time::timeout(remaining, afd.readable()).await {
+                Ok(Ok(g)) => g,
+                Ok(Err(_)) => return Err(JkError::ReadFailed(-1)),
+                Err(_) => break, // timed out
+            };
+
+            let mut frame = CanFrame { can_id: 0, data: [0u8; 8], len: 0 };
+            match guard.try_io(|inner| Self::read_can(inner.as_raw_fd(), &mut frame)) {
+                Ok(Ok(_)) => {
                     if frame.len > 0 {
-                        let copy_len = frame.len as usize;
+                        let copy_len = (frame.len as usize).min(buf.len() - total);
                         buf[total..total + copy_len].copy_from_slice(&frame.data[..copy_len]);
                         total += copy_len;
                         break;
                     }
                 }
-                Err(e) => return Err(e),
+                Ok(Err(_)) => return Err(JkError::ReadFailed(-1)),
+                Err(_would_block) => continue,
             }
         }
 
         if total > 0 {
             log::debug!("CAN read {} bytes", total);
         }
-        
         Ok(total)
     }
 }

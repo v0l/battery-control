@@ -19,17 +19,17 @@ impl JkSession {
         })
     }
 
-    pub fn open(&mut self) -> Result<()> {
+    pub async fn open(&mut self) -> Result<()> {
         if let Some(ref mut handle) = self.tp_handle {
-            handle.open()
+            handle.open().await
         } else {
             Err(JkError::TransportNotInitialized)
         }
     }
 
-    pub fn close(&mut self) -> Result<()> {
+    pub async fn close(&mut self) -> Result<()> {
         if let Some(ref mut handle) = self.tp_handle {
-            handle.close()
+            handle.close().await
         } else {
             Err(JkError::TransportNotInitialized)
         }

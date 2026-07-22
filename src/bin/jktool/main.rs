@@ -88,13 +88,14 @@ enum Commands {
     },
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
 
     #[cfg(feature = "bluetooth")]
     if matches!(cli.command, Some(Commands::Scan)) {
         println!("Scanning for Bluetooth devices...");
-        match transport_bt::scan() {
+        match transport_bt::scan().await {
             Ok(devices) => {
                 if devices.is_empty() {
                     println!("No Bluetooth devices found.");
@@ -152,33 +153,33 @@ fn main() {
         }
     };
 
-    if let Err(e) = session.open() {
+    if let Err(e) = session.open().await {
         eprintln!("Failed to open transport: {}", e);
         std::process::exit(1);
     }
 
     match command {
         Commands::Read => {
-            let info = do_read(&mut session, &mut pack, &cli, false);
+            let info = do_read(&mut session, &mut pack, &cli, false).await;
             let output = format_output(&info, &pack, &cli);
             write_output(&output, &cli);
         }
         Commands::Settings => {
-            let _info = do_read(&mut session, &mut pack, &cli, true);
+            let _info = do_read(&mut session, &mut pack, &cli, true).await;
             if let Some(ref settings) = pack.settings {
                 let output = format_settings(settings, &pack.protocol_version, &cli);
                 write_output(&output, &cli);
             } else {
                 eprintln!("No settings frame received from BMS");
-                let _ = session.close();
+                let _ = session.close().await;
                 std::process::exit(1);
             }
-            let _ = session.close();
+            let _ = session.close().await;
             return;
         }
         Commands::Set { name, value } => {
             // First do a read to detect protocol version
-            let _info = do_read(&mut session, &mut pack, &cli, false);
+            let _info = do_read(&mut session, &mut pack, &cli, false).await;
 
             // Determine if using CAN transport
             let is_can = pack.transport == "can";
@@ -189,7 +190,7 @@ fn main() {
                     None => {
                         eprintln!("Unknown or unsupported setting: '{}' for protocol {:?}", name, pack.protocol_version);
                         eprintln!("Use 'list-settings' to see supported settings.");
-                        let _ = session.close();
+                        let _ = session.close().await;
                         std::process::exit(1);
                     }
                 }
@@ -199,7 +200,7 @@ fn main() {
                     None => {
                         eprintln!("Unknown or unsupported setting: '{}' for protocol {:?}", name, pack.protocol_version);
                         eprintln!("Use 'list-settings' to see supported settings.");
-                        let _ = session.close();
+                        let _ = session.close().await;
                         std::process::exit(1);
                     }
                 }
@@ -210,13 +211,13 @@ fn main() {
             }
 
             if let Some(ref mut handle) = session.tp_handle {
-                match handle.write(&frame) {
+                match handle.write(&frame).await {
                     Ok(n) => {
                         println!("Wrote {} bytes: {} = {}", n, name, value);
                         // Read response to confirm
                         let mut buf = vec![0u8; 2048];
-                        std::thread::sleep(std::time::Duration::from_millis(500));
-                        match handle.read(&mut buf) {
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        match handle.read(&mut buf).await {
                             Ok(bytes) if bytes > 0 => {
                                 if cli.debug > 0 {
                                     eprintln!("DEBUG: response {} bytes", bytes);
@@ -233,7 +234,7 @@ fn main() {
                     }
                     Err(e) => {
                         eprintln!("Write failed: {}", e);
-                        let _ = session.close();
+                        let _ = session.close().await;
                         std::process::exit(1);
                     }
                 }
@@ -246,10 +247,10 @@ fn main() {
         Commands::ListSettings => { unreachable!() }
     }
 
-    let _ = session.close();
+    let _ = session.close().await;
 }
 
-fn do_read(session: &mut jk_bms::JkSession, pack: &mut MybmmPack, cli: &Cli, need_settings: bool) -> JkInfo {
+async fn do_read(session: &mut jk_bms::JkSession, pack: &mut MybmmPack, cli: &Cli, need_settings: bool) -> JkInfo {
     let mut data_buf = vec![0u8; 2048];
     let mut assembler = FrameAssembler::new();
     let mut retries = 5;
@@ -268,13 +269,13 @@ fn do_read(session: &mut jk_bms::JkSession, pack: &mut MybmmPack, cli: &Cli, nee
     let mut _got_info = false;
     while retries > 0 {
         if let Some(ref mut handle) = session.tp_handle {
-            if let Err(e) = handle.write(&info_cmd) {
+            if let Err(e) = handle.write(&info_cmd).await {
                 eprintln!("Write error: {}", e);
                 break;
             }
             let read_start = std::time::Instant::now();
             while read_start.elapsed() < std::time::Duration::from_secs(3) {
-                match handle.read(&mut data_buf) {
+                match handle.read(&mut data_buf).await {
                     Ok(bytes) if bytes > 0 => {
                         if cli.debug > 0 {
                             eprintln!("DEBUG: phase1 read {} bytes", bytes);
@@ -293,14 +294,14 @@ fn do_read(session: &mut jk_bms::JkSession, pack: &mut MybmmPack, cli: &Cli, nee
                         break;
                     }
                 }
-                std::thread::sleep(std::time::Duration::from_millis(50));
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
             if _got_info {
                 break;
             }
         }
         retries -= 1;
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
 
     // Phase 2: send getCellInfo, parse voltage + settings data
@@ -316,15 +317,15 @@ fn do_read(session: &mut jk_bms::JkSession, pack: &mut MybmmPack, cli: &Cli, nee
     assembler.clear();
 
     if let Some(ref mut handle) = session.tp_handle {
-        let _ = handle.write(&cell_cmd);
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        let _ = handle.write(&cell_cmd).await;
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
 
     while retries > 0 {
         if let Some(ref mut handle) = session.tp_handle {
             let read_start = std::time::Instant::now();
             while read_start.elapsed() < std::time::Duration::from_secs(3) {
-                match handle.read(&mut data_buf) {
+                match handle.read(&mut data_buf).await {
                     Ok(bytes) if bytes > 0 => {
                         if cli.debug > 0 {
                             eprintln!("DEBUG: phase2 read {} bytes", bytes);
@@ -349,14 +350,14 @@ fn do_read(session: &mut jk_bms::JkSession, pack: &mut MybmmPack, cli: &Cli, nee
                         break;
                     }
                 }
-                std::thread::sleep(std::time::Duration::from_millis(50));
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
             }
             if got_volt && (!need_settings || got_settings) {
                 break;
             }
         }
         retries -= 1;
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
 
     if !got_volt {
