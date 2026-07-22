@@ -1,6 +1,6 @@
 [package]
 name = "jk_bms"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Async library and CLI (jktool) for JIKONG (JK) Battery Management Systems over Serial, Bluetooth LE and CAN"
@@ -25,16 +25,22 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 libc = "0.2"
 async-trait = "0.1"
-tokio = { version = "1", features = ["rt-multi-thread", "time", "macros", "net"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "macros", "net", "io-util"] }
 btleplug = { version = "0.12", optional = true }
 uuid = { version = "1", optional = true }
 futures-util = { version = "0.3", optional = true }
-socketcan = { version = "3.6", optional = true }
+tokio-serial = { version = "5.4", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+socketcan = { version = "3.6", features = ["tokio"], optional = true }
 
 [features]
-default = ["bluetooth"]
-bluetooth = ["btleplug", "uuid", "futures-util"]
-can = ["socketcan"]
+# `can` pulls SocketCAN only on Linux (see the target-specific dependency below);
+# it is inert on other platforms, so keeping it in the default set is safe.
+default = ["bluetooth", "serial", "can"]
+bluetooth = ["dep:btleplug", "dep:uuid", "dep:futures-util"]
+serial = ["dep:tokio-serial"]
+can = ["dep:socketcan"]
 
 [lib]
 name = "jk_bms"

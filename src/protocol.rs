@@ -26,7 +26,7 @@ pub fn get_signed_short(data: &[u8], offset: usize) -> i16 {
 
 pub fn get_16bit(data: &[u8], offset: usize) -> u16 {
     if offset + 2 <= data.len() {
-        (u16::from(data[offset + 1]) << 8) | (u16::from(data[offset]) << 0)
+        (u16::from(data[offset + 1]) << 8) | u16::from(data[offset])
     } else {
         0
     }
@@ -34,7 +34,7 @@ pub fn get_16bit(data: &[u8], offset: usize) -> u16 {
 
 pub fn get_32bit(data: &[u8], offset: usize) -> u32 {
     if offset + 4 <= data.len() {
-        (u32::from(get_16bit(data, offset + 2)) << 16) | (u32::from(get_16bit(data, offset)) << 0)
+        (u32::from(get_16bit(data, offset + 2)) << 16) | u32::from(get_16bit(data, offset))
     } else {
         0
     }
@@ -48,8 +48,8 @@ pub fn ieee_float(raw: u32) -> f32 {
 /// CRC check: sum of all bytes (mod 256). Matches the ESPHome reference `crc()` function.
 pub fn crc(data: &[u8], len: usize) -> u8 {
     let mut crc: u8 = 0;
-    for i in 0..len.min(data.len()) {
-        crc = crc.wrapping_add(data[i]);
+    for &b in &data[..len.min(data.len())] {
+        crc = crc.wrapping_add(b);
     }
     crc
 }
@@ -77,9 +77,9 @@ pub const ERROR_DESCRIPTIONS: [&str; 16] = [
 /// Convert error bitmask to a list of active error descriptions
 pub fn error_bitmask_to_strings(bitmask: u16) -> Vec<&'static str> {
     let mut errors = vec![];
-    for i in 0..16 {
+    for (i, desc) in ERROR_DESCRIPTIONS.iter().enumerate() {
         if bitmask & (1 << i) != 0 {
-            errors.push(ERROR_DESCRIPTIONS[i]);
+            errors.push(*desc);
         }
     }
     errors
@@ -131,7 +131,7 @@ fn parse_jk02_cell_info(pp: &mut MybmmPack, data: &[u8]) {
     parse_jk02_cell_voltages(pp, data, offset);
 
     // Enabled cells bitmask at offset 54 + offset (4 bytes)
-    pp.enabled_cells_bitmask = get_32bit(data, 54 + offset) as u32;
+    pp.enabled_cells_bitmask = get_32bit(data, 54 + offset);
 
     // After cell voltages/resistances, double the offset for remaining fields
     // (because cell resistance section adds another `offset` worth of bytes)
@@ -177,7 +177,7 @@ fn parse_jk02_cell_info(pp: &mut MybmmPack, data: &[u8]) {
     pp.balancing_current = get_16bit(data, 138 + offset2) as i16 as f32 * 0.001;
 
     // 140: Balancing action (0=off, 1=charging balancer, 2=discharging balancer)
-    pp.balancing = data.get(140 + offset2).map_or(false, |&b| b != 0x00);
+    pp.balancing = data.get(140 + offset2).is_some_and(|&b| b != 0x00);
 
     // 141: State of charge (%)
     pp.soc = *data.get(141 + offset2).unwrap_or(&0) as f32;
@@ -201,16 +201,16 @@ fn parse_jk02_cell_info(pp: &mut MybmmPack, data: &[u8]) {
     pp.total_runtime = get_32bit(data, 162 + offset2);
 
     // 166: Charging mosfet enabled (0x00=off, 0x01=on)
-    pp.charging = data.get(166 + offset2).map_or(false, |&b| b != 0x00);
+    pp.charging = data.get(166 + offset2).is_some_and(|&b| b != 0x00);
 
     // 167: Discharging mosfet enabled
-    pp.discharging = data.get(167 + offset2).map_or(false, |&b| b != 0x00);
+    pp.discharging = data.get(167 + offset2).is_some_and(|&b| b != 0x00);
 
     // 168: Precharging
-    pp.precharging = data.get(168 + offset2).map_or(false, |&b| b != 0x00);
+    pp.precharging = data.get(168 + offset2).is_some_and(|&b| b != 0x00);
 
     // 183: Heating
-    pp.heating = data.get(183 + offset2).map_or(false, |&b| b != 0x00);
+    pp.heating = data.get(183 + offset2).is_some_and(|&b| b != 0x00);
 
     // 32S additional temp sensors
     if pp.protocol_version == ProtocolVersion::Jk02_32S {
@@ -272,7 +272,7 @@ fn parse_jk04_cell_info(pp: &mut MybmmPack, data: &[u8]) {
     pp.balancing_current = ieee_float(get_32bit(data, 222));
 
     // 220: Balancing action (0=off, 1=charging, 2=discharging)
-    pp.balancing = data.get(220).map_or(false, |&b| b != 0x00);
+    pp.balancing = data.get(220).is_some_and(|&b| b != 0x00);
 
     // 286: Total runtime (3 bytes + padding?)
     pp.total_runtime = get_32bit(data, 286);
@@ -294,6 +294,12 @@ pub struct ParseFlags {
     pub got_res: bool,
     pub got_volts: bool,
     pub got_info: bool,
+}
+
+impl Default for ParseFlags {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ParseFlags {
@@ -518,11 +524,7 @@ impl FrameAssembler {
     /// Returns parsed flags if a frame was successfully decoded.
     pub fn feed_and_decode(&mut self, pp: &mut MybmmPack, data: &[u8]) -> Option<ParseFlags> {
         self.feed(data);
-        if let Some(frame) = self.try_decode() {
-            Some(getdata(pp, &frame))
-        } else {
-            None
-        }
+        self.try_decode().map(|frame| getdata(pp, &frame))
     }
 
     /// Clear the assembler buffer
@@ -721,11 +723,11 @@ fn parse_jk02_settings(version: ProtocolVersion, data: &[u8]) -> JkSettings {
     // 114: Cell count (single byte)
     s.cell_count = data.get(114).copied().unwrap_or(0);
     // 118: Charge switch
-    s.charging_switch = data.get(118).map_or(false, |&b| b != 0);
+    s.charging_switch = data.get(118).is_some_and(|&b| b != 0);
     // 122: Discharge switch
-    s.discharging_switch = data.get(122).map_or(false, |&b| b != 0);
+    s.discharging_switch = data.get(122).is_some_and(|&b| b != 0);
     // 126: Balancer switch
-    s.balancer_switch = data.get(126).map_or(false, |&b| b != 0);
+    s.balancer_switch = data.get(126).is_some_and(|&b| b != 0);
     // 130: Nominal battery capacity (*0.001 Ah)
     s.total_battery_capacity = get_32bit(data, 130) as f32 * 0.001;
     // 134: SCP delay (JK02_24S: μs, JK02_32S: μs)
@@ -802,7 +804,7 @@ fn parse_jk04_settings(data: &[u8]) -> JkSettings {
     s.max_balance_current = ieee_float(get_32bit(data, 110));
 
     // 114: Balancer switch (1 byte)
-    s.balancer_switch = data.get(114).map_or(false, |&b| b != 0);
+    s.balancer_switch = data.get(114).is_some_and(|&b| b != 0);
 
     s
 }
@@ -821,7 +823,7 @@ pub fn build_write_frame(register: u8, value: u32, length: u8) -> [u8; 20] {
     frame[3] = 0xEB;
     frame[4] = register;
     frame[5] = length;
-    frame[6] = (value >> 0) as u8;
+    frame[6] = value as u8;
     frame[7] = (value >> 8) as u8;
     frame[8] = (value >> 16) as u8;
     frame[9] = (value >> 24) as u8;

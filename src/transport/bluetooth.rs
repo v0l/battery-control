@@ -1,15 +1,19 @@
-use jk_bms::{Transport, Result, JkError, async_trait};
+use crate::{Transport, Result, JkError, async_trait};
 use std::pin::Pin;
 use std::time::Duration;
 
-use btleplug::api::{BDAddr, Central, Manager as _, Peripheral as _, ScanFilter, WriteType, Characteristic, ValueNotification};
+use btleplug::api::{Central, Manager as _, Peripheral as _, ScanFilter, WriteType, Characteristic, ValueNotification};
 use btleplug::platform::{Manager, Peripheral};
 use futures_util::{Stream, StreamExt};
 use uuid::Uuid;
 
+/// A discovered BLE device.
 pub struct BtDevice {
     pub name: Option<String>,
-    pub address: String,
+    /// Stable, platform-independent identifier from btleplug's `Peripheral::id()`.
+    /// Use this string as the transport target — unlike the MAC address it is not
+    /// zeroed out on macOS.
+    pub id: String,
     pub rssi: Option<i16>,
 }
 
@@ -41,7 +45,7 @@ pub async fn scan() -> Result<Vec<BtDevice>> {
 
         devices.push(BtDevice {
             name,
-            address: peripheral.address().to_string(),
+            id: peripheral.id().to_string(),
             rssi,
         });
     }
@@ -64,8 +68,7 @@ impl BluetoothTransport {
     pub fn new(target: &str, topts: Option<&str>) -> Self {
         let char_uuid = topts.map(|s| {
             let trimmed = s.trim();
-            if trimmed.starts_with("0x") {
-                let hex = &trimmed[2..];
+            if let Some(hex) = trimmed.strip_prefix("0x") {
                 if hex.len() <= 4 {
                     format!("0000{}-0000-1000-8000-00805f9b34fb", hex)
                 } else {
@@ -73,9 +76,8 @@ impl BluetoothTransport {
                 }
             } else if trimmed.len() == 36 && trimmed.contains('-') {
                 trimmed.to_string()
-            } else if trimmed.len() == 4 {
-                format!("0000{}-0000-1000-8000-00805f9b34fb", trimmed)
             } else {
+                // Short 16-bit UUID alias (with or without exactly 4 chars).
                 format!("0000{}-0000-1000-8000-00805f9b34fb", trimmed)
             }
         }).unwrap_or_else(|| "0000ffe1-0000-1000-8000-00805f9b34fb".to_string());
@@ -119,11 +121,14 @@ impl Transport for BluetoothTransport {
         let peripherals = adapter.peripherals().await
             .map_err(|e| JkError::TransportError(format!("bt peripherals: {}", e)))?;
 
-        let target_addr: BDAddr = target.parse()
-            .map_err(|_| JkError::TransportError(format!("invalid mac address: {}", target)))?;
-
+        // Match on the stable `Peripheral::id()` string (works on macOS, where the
+        // MAC address is zeroed). Also accept a case-insensitive match so a MAC-style
+        // id can be given in either case.
         let peripheral = peripherals.into_iter()
-            .find(|p| p.address() == target_addr)
+            .find(|p| {
+                let id = p.id().to_string();
+                id == target || id.eq_ignore_ascii_case(&target)
+            })
             .ok_or_else(|| JkError::TransportError(format!("device {} not found", target)))?;
 
         peripheral.connect().await

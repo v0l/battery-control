@@ -3,20 +3,13 @@ use jk_bms::{MybmmPack, MybmmModule, Transport, JkInfo, FrameAssembler, Protocol
 use jk_bms::{get_info_command, get_cell_info_command, get_can_info_command, get_can_cell_info_command};
 use jk_bms::{SETTINGS, build_setting_write_frame, build_can_setting_write_frame};
 
-#[cfg(target_os = "linux")]
-mod transport_serial;
-#[cfg(target_os = "linux")]
-use transport_serial::SerialTransport;
-
-#[cfg(target_os = "linux")]
-mod transport_can;
-#[cfg(target_os = "linux")]
-use transport_can::CanTransport;
+#[cfg(feature = "serial")]
+use jk_bms::transport::SerialTransport;
+#[cfg(all(feature = "can", target_os = "linux"))]
+use jk_bms::transport::CanTransport;
 
 #[cfg(feature = "bluetooth")]
-mod transport_bt;
-#[cfg(feature = "bluetooth")]
-use transport_bt::BluetoothTransport;
+use jk_bms::transport::BluetoothTransport;
 
 #[derive(Parser, Debug)]
 #[command(name = "jktool")]
@@ -95,7 +88,7 @@ async fn main() {
     #[cfg(feature = "bluetooth")]
     if matches!(cli.command, Some(Commands::Scan)) {
         println!("Scanning for Bluetooth devices...");
-        match transport_bt::scan().await {
+        match jk_bms::transport::scan().await {
             Ok(devices) => {
                 if devices.is_empty() {
                     println!("No Bluetooth devices found.");
@@ -104,7 +97,7 @@ async fn main() {
                     for dev in &devices {
                         let name = dev.name.as_deref().unwrap_or("Unknown");
                         let rssi = dev.rssi.map(|r| format!("{} dBm", r)).unwrap_or_else(|| "N/A".to_string());
-                        println!("  {:30} {:20} RSSI: {}", name, dev.address, rssi);
+                        println!("  {:30} {:38} RSSI: {}", name, dev.id, rssi);
                     }
                 }
             }
@@ -713,7 +706,7 @@ fn list_settings(cli: &Cli) {
             }
         }
         OutputFormat::Text => {
-            println!("{:30} {:>6} {:>4} {:>8} {:>3} {}", "Name", "Unit", "Reg", "Factor", "Len", "Switch");
+            println!("{:30} {:>6} {:>4} {:>8} {:>3} Switch", "Name", "Unit", "Reg", "Factor", "Len");
             println!("{}", "-".repeat(60));
             for s in SETTINGS.iter().filter(|s| s.registers[idx] != 0) {
                 println!("{:30} {:>6} 0x{:02X} {:>8.0} {:>3} {}",
@@ -752,9 +745,9 @@ fn parse_transport(spec: &str) -> (&str, &str) {
 
 fn create_session(pack: &MybmmPack, _module: &MybmmModule) -> jk_bms::Result<jk_bms::JkSession> {
     let transport: Box<dyn Transport> = match pack.transport.as_str() {
-        #[cfg(target_os = "linux")]
+        #[cfg(feature = "serial")]
         "serial" => Box::new(SerialTransport::from_target(&pack.target)),
-        #[cfg(target_os = "linux")]
+        #[cfg(all(feature = "can", target_os = "linux"))]
         "can" => Box::new(CanTransport::from_target(&pack.target)?),
         #[cfg(feature = "bluetooth")]
         "bt" => Box::new(BluetoothTransport::from_target(&pack.target)),
@@ -1006,11 +999,7 @@ fn format_settings_text(s: &jk_bms::JkSettings, version: &ProtocolVersion) -> St
     out.push_str(&format!("{:25} {:.0} s\n", "Discharge OCP Delay:", r0(s.discharge_ocp_delay)));
     out.push_str(&format!("{:25} {:.0} s\n", "Discharge OCP Recovery:", r0(s.discharge_ocp_recovery)));
     out.push_str(&format!("{:25} {:.0} s\n", "SCP Recovery:", r0(s.scp_recovery)));
-    if *version == ProtocolVersion::Jk02_24S {
-        out.push_str(&format!("{:25} {:.0} μs\n", "SCP Delay:", r0(s.scp_delay)));
-    } else {
-        out.push_str(&format!("{:25} {:.0} μs\n", "SCP Delay:", r0(s.scp_delay)));
-    }
+    out.push_str(&format!("{:25} {:.0} μs\n", "SCP Delay:", r0(s.scp_delay)));
     out.push_str(&format!("{:25} {:.1} °C\n", "Charge OTP:", r1(s.charge_otp)));
     out.push_str(&format!("{:25} {:.1} °C\n", "Charge OTP Recovery:", r1(s.charge_otp_recovery)));
     out.push_str(&format!("{:25} {:.1} °C\n", "Discharge OTP:", r1(s.discharge_otp)));

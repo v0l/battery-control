@@ -4,6 +4,7 @@ pub mod protocol;
 pub mod session;
 pub mod module;
 pub mod jk_info;
+pub mod transport;
 
 pub use error::{JkError, Result};
 pub use pack::{MybmmPack, ProtocolVersion, JkSettings};
@@ -13,13 +14,20 @@ pub use module::{MybmmModule, Transport, jk_init, jk_new, jk_open, jk_read, jk_c
 pub use jk_info::{JkInfo, parse_info_strings};
 pub use async_trait::async_trait;
 
+#[cfg(feature = "bluetooth")]
+pub use transport::{BluetoothTransport, BtDevice, scan as bt_scan};
+#[cfg(feature = "serial")]
+pub use transport::SerialTransport;
+#[cfg(all(feature = "can", target_os = "linux"))]
+pub use transport::CanTransport;
+
 pub const JK_MODULE_NAME: &str = "jk";
 pub const JK_MODULE_TYPE: i32 = 1;
 
 pub fn create_jk_module() -> MybmmModule {
     MybmmModule::new(
         JK_MODULE_NAME,
-        (MYBMM_CHARGE_CONTROL | MYBMM_DISCHARGE_CONTROL | MYBMM_BALANCE_CONTROL) as u16,
+        MYBMM_CHARGE_CONTROL | MYBMM_DISCHARGE_CONTROL | MYBMM_BALANCE_CONTROL,
     )
 }
 
