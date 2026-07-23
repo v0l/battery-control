@@ -27,7 +27,7 @@ futures-util = { version = "0.3", optional = true }
 tokio-stream = { version = "0.1", optional = true }
 
 # --- backend crates (each feature-gated) ---
-anker_solix = { version = "0.3", optional = true }
+anker_solix = { version = "0.4", optional = true }
 jk_bms = { version = "0.3", optional = true }
 # used only for serial port *enumeration* during discovery
 tokio-serial = { version = "5", optional = true }

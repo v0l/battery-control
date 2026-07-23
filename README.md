@@ -102,6 +102,13 @@ Blocking upstreams should be driven with `tokio::task::block_in_place` /
 **Candidates to add next:** JBD/Xiaoxiang (`ubmsc`), VE.Direct serial
 (`vedirect`), PACE-BMS and EG4-LL Modbus (native decoders, like Pylontech).
 
+## Home Assistant
+
+[battery-ha-bridge](https://github.com/v0l/battery-ha-bridge) exposes every
+connected battery to Home Assistant via MQTT Discovery — sensors,
+capability-gated switches and a charge-limit number entity appear
+automatically. It also ships as a Home Assistant OS add-on.
+
 ## License
 
 MIT
