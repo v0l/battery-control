@@ -5,7 +5,7 @@
 //! Settings → Product info → Encryption data).
 
 use crate::battery::Battery;
-use crate::types::BatteryStatus;
+use crate::types::{BatteryStatus, Reading};
 use crate::{Capabilities, DeviceInfo, Error, Result};
 use async_trait::async_trait;
 use futures_util::{Stream, StreamExt};
@@ -45,15 +45,14 @@ fn to_status(m: &BatteryMonitorState) -> BatteryStatus {
         (Some(v), Some(i)) => Some(v * i),
         _ => None,
     };
-    BatteryStatus {
-        soc: m.state_of_charge_pct,
-        voltage: m.battery_voltage_v,
-        current: m.battery_current_a,
-        power_in: power.filter(|p| *p > 0.0),
-        power_out: power.filter(|p| *p < 0.0).map(f32::abs),
-        time_remaining_h: m.time_to_go_mins.map(|min| min / 60.0),
-        ..Default::default()
-    }
+    let mut s = BatteryStatus::default();
+    s.set(Reading::Soc, m.state_of_charge_pct.map(|v| v as f64))
+        .set(Reading::Voltage, m.battery_voltage_v.map(|v| v as f64))
+        .set(Reading::Current, m.battery_current_a.map(|v| v as f64))
+        .set(Reading::PowerIn, power.filter(|p| *p > 0.0).map(|v| v as f64))
+        .set(Reading::PowerOut, power.filter(|p| *p < 0.0).map(|v| v.abs() as f64))
+        .set(Reading::TimeRemainingH, m.time_to_go_mins.map(|min| (min / 60.0) as f64));
+    s
 }
 
 #[async_trait]

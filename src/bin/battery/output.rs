@@ -1,6 +1,6 @@
 //! Text/JSON rendering for the `battery` CLI.
 
-use battery_control::{BatteryStatus, DeviceInfo, Discovered, PortDirection};
+use battery_control::{BatteryStatus, DeviceInfo, Discovered, PortDirection, SettingValue};
 
 pub fn print_scan(devices: &[Discovered]) {
     if devices.is_empty() {
@@ -33,8 +33,22 @@ pub fn print_status(info: &DeviceInfo, s: &BatteryStatus, json: bool) {
     print!("{}", render_text(info, s));
 }
 
-fn opt<T: std::fmt::Display>(v: &Option<T>, unit: &str) -> String {
-    v.as_ref().map(|x| format!("{x}{unit}")).unwrap_or_else(|| "-".into())
+/// Format a float without trailing `.0` noise.
+fn num(v: f64) -> String {
+    if v.fract() == 0.0 {
+        format!("{v:.0}")
+    } else {
+        format!("{v:.2}")
+    }
+}
+
+/// Human-ish label from an id: `"power_in"`/`"temp.mosfet"` -> `"Power in"`.
+fn nice(id: &str) -> String {
+    let mut c = id.replace(['_', '.'], " ");
+    if let Some(f) = c.get_mut(0..1) {
+        f.make_ascii_uppercase();
+    }
+    c
 }
 
 fn render_text(info: &DeviceInfo, s: &BatteryStatus) -> String {
@@ -42,78 +56,30 @@ fn render_text(info: &DeviceInfo, s: &BatteryStatus) -> String {
     let mut o = format!("── {title} ({}) ──\n", info.backend);
     let row = |o: &mut String, k: &str, v: String| o.push_str(&format!("{k:<20} {v}\n"));
 
-    row(&mut o, "SOC:", opt(&s.soc, " %"));
-    if s.soh.is_some() {
-        row(&mut o, "SOH:", opt(&s.soh, " %"));
+    // Readings: one row each, in the order the backend reported them.
+    for sensor in &s.sensors {
+        let name = sensor.label.clone().unwrap_or_else(|| nice(&sensor.id));
+        let sym = sensor.unit.symbol();
+        let sep = if sym.is_empty() { "" } else { " " };
+        row(&mut o, &format!("{name}:"), format!("{}{sep}{sym}", num(sensor.value)));
     }
-    row(&mut o, "Voltage:", opt(&s.voltage, " V"));
-    row(&mut o, "Current:", opt(&s.current, " A"));
-    if s.power_in.is_some() {
-        row(&mut o, "Power in:", opt(&s.power_in, " W"));
-    }
-    if s.power_out.is_some() {
-        row(&mut o, "Power out:", opt(&s.power_out, " W"));
-    }
-    // Temperatures: one row if a single probe, else one row per named sensor.
-    match s.temperatures.as_slice() {
-        [] => {}
-        [one] => row(&mut o, "Temperature:", format!("{} °C", one.celsius)),
-        many => {
-            for sensor in many {
-                let name = sensor.label.as_deref().unwrap_or(&sensor.id);
-                row(&mut o, &format!("Temp {name}:"), format!("{} °C", sensor.celsius));
-            }
-        }
-    }
-    if s.charging.is_some() || s.discharging.is_some() {
-        row(
-            &mut o,
-            "MOSFETs:",
-            format!("chg {} / dis {}", onoff(s.charging), onoff(s.discharging)),
-        );
-    }
+
+    // Switches (incl. charging/discharging).
     for sw in &s.switches {
         let name = sw.label.as_deref().unwrap_or(&sw.id);
         row(&mut o, &format!("{name}:"), if sw.on { "on" } else { "off" }.to_string());
     }
-    if s.charge_current_limit_a.is_some() || s.discharge_current_limit_a.is_some() {
-        row(
-            &mut o,
-            "Limits:",
-            format!(
-                "chg {} / dis {}",
-                opt(&s.charge_current_limit_a, " A"),
-                opt(&s.discharge_current_limit_a, " A")
-            ),
-        );
-    }
-    if s.soc_limit_min.is_some() || s.soc_limit_max.is_some() {
-        row(
-            &mut o,
-            "Charge limits:",
-            format!(
-                "{}–{}",
-                opt(&s.soc_limit_min, "%"),
-                opt(&s.soc_limit_max, "%")
-            ),
-        );
-    }
-    if let Some(h) = s.time_remaining_h {
-        row(&mut o, "Time remaining:", format!("{h:.1} h"));
-    }
-    if s.capacity_remaining_ah.is_some() {
-        row(
-            &mut o,
-            "Capacity:",
-            format!(
-                "{} / {}",
-                opt(&s.capacity_remaining_ah, " Ah"),
-                opt(&s.capacity_full_ah, " Ah")
-            ),
-        );
-    }
-    if s.cycles.is_some() {
-        row(&mut o, "Cycles:", opt(&s.cycles, ""));
+
+    // Settings (read/write config).
+    for st in &s.settings {
+        let name = st.label.as_deref().unwrap_or(&st.id);
+        let val = match &st.value {
+            SettingValue::Bool(b) => if *b { "on".into() } else { "off".into() },
+            SettingValue::Number(n) => num(*n),
+            SettingValue::Text(t) => t.clone(),
+        };
+        let ro = if st.writable { "" } else { " (ro)" };
+        row(&mut o, &format!("{name}:"), format!("{val}{ro}"));
     }
 
     // Ports (stations), labelled by their unique id + flow direction.
@@ -153,12 +119,4 @@ fn render_text(info: &DeviceInfo, s: &BatteryStatus) -> String {
         row(&mut o, "Serial:", sn.clone());
     }
     o
-}
-
-fn onoff(v: Option<bool>) -> &'static str {
-    match v {
-        Some(true) => "on",
-        Some(false) => "off",
-        None => "-",
-    }
 }

@@ -21,8 +21,7 @@ bitflags! {
         const READ_ALARMS       = 1 << 5;
 
         // --- control ---
-        /// Can toggle output ports.
-        const TOGGLE_PORTS      = 1 << 16;
+        // (Port controllability is per-port; see `PortInfo::settable`.)
         /// Can toggle the charge MOSFET.
         const TOGGLE_CHARGE     = 1 << 17;
         /// Can toggle the discharge MOSFET.
@@ -40,8 +39,7 @@ impl Capabilities {
     /// True if this backend supports any control command (i.e. is not read-only).
     pub fn is_controllable(&self) -> bool {
         self.intersects(
-            Capabilities::TOGGLE_PORTS
-                | Capabilities::TOGGLE_CHARGE
+            Capabilities::TOGGLE_CHARGE
                 | Capabilities::TOGGLE_DISCHARGE
                 | Capabilities::TOGGLE_BALANCER
                 | Capabilities::SET_CHARGE_LIMIT

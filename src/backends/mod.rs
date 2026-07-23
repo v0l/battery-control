@@ -6,9 +6,9 @@ pub mod anker;
 #[cfg(feature = "anker")]
 pub use anker::AnkerBattery;
 
-#[cfg(feature = "jk")]
+#[cfg(any(feature = "jk-ble", feature = "jk-serial"))]
 pub mod jk;
-#[cfg(feature = "jk")]
+#[cfg(any(feature = "jk-ble", feature = "jk-serial"))]
 pub use jk::JkBattery;
 
 #[cfg(feature = "daly")]

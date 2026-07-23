@@ -37,10 +37,12 @@ mod types;
 pub mod backends;
 pub mod discovery;
 
-pub use battery::Battery;
+pub use battery::{Battery, StatusStream};
 pub use capabilities::Capabilities;
 pub use discovery::{discover, resolve, DeviceClass, Discovered, DiscoverOptions};
 pub use error::{Error, Result};
 pub use types::{
-    BatteryStatus, CellInfo, Command, DeviceInfo, PortDirection, PortInfo, Sensor, Switch,
+    BatteryStatus, CellInfo, Command, DeviceInfo, PortDirection, PortInfo, Reading, Sensor,
+    Setting, SettingKind, SettingValue, StatusUpdate, Switch, SwitchId, UnknownId, Unit,
+    TEMP_PREFIX,
 };

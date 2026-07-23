@@ -103,17 +103,38 @@ async fn run(cli: Cli) -> Result<()> {
             output::print_status(bat.info(), &s, cli.json);
         }
         Cmd::Monitor { query, interval } => {
+            use futures_util::StreamExt;
             let mut bat = connect(&cli, query).await?;
             eprintln!("streaming '{}' (Ctrl-C to stop)", bat.info().id_label());
+            // Unified stream: native push when the backend has one, else
+            // poll-and-diff. Fold updates into a running snapshot and reprint
+            // at most once per `interval`.
+            let interval = Duration::from_secs(*interval);
+            let info = bat.info().clone();
+            let mut live = battery_control::BatteryStatus::default();
+            let mut last_print: Option<std::time::Instant> = None;
+            let mut dirty = false;
+            let mut updates = bat.updates(interval);
             loop {
-                match bat.status().await {
-                    Ok(s) => output::print_status(bat.info(), &s, cli.json),
-                    Err(e) => {
+                let next = tokio::time::timeout(interval, updates.next()).await;
+                match next {
+                    Ok(Some(Ok(u))) => {
+                        live.apply(&u);
+                        dirty = true;
+                    }
+                    Ok(Some(Err(e))) => {
                         eprintln!("status error: {e}");
                         break;
                     }
+                    Ok(None) => break,
+                    Err(_elapsed) => {} // no update this tick; maybe flush below
                 }
-                tokio::time::sleep(Duration::from_secs(*interval)).await;
+                let due = last_print.is_none_or(|t| t.elapsed() >= interval);
+                if dirty && due {
+                    output::print_status(&info, &live, cli.json);
+                    last_print = Some(std::time::Instant::now());
+                    dirty = false;
+                }
             }
         }
         Cmd::Set {

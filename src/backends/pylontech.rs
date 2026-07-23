@@ -11,7 +11,7 @@
 //! [`BatteryStatus`]. The actual CAN socket (Linux `socketcan`) lives behind the
 //! `can-socket` feature.
 
-use crate::types::{BatteryStatus, Sensor};
+use crate::types::{BatteryStatus, Reading, SwitchId, Unit};
 
 fn u16le(d: &[u8], i: usize) -> u16 {
     u16::from_le_bytes([d[i], d[i + 1]])
@@ -87,30 +87,23 @@ impl PylontechState {
             (Some(v), Some(i)) => Some(v * i),
             _ => None,
         };
-        BatteryStatus {
-            soc: self.soc,
-            soh: self.soh,
-            voltage: self.voltage,
-            current: self.current,
+        let mut s = BatteryStatus::default();
+        s.set(Reading::Soc, self.soc.map(|v| v as f64))
+            .set(Reading::Soh, self.soh.map(|v| v as f64))
+            .set(Reading::Voltage, self.voltage.map(|v| v as f64))
+            .set(Reading::Current, self.current.map(|v| v as f64))
             // Pylontech current is + charging / - discharging.
-            power_in: power.filter(|p| *p > 0.0),
-            power_out: power.filter(|p| *p < 0.0).map(f32::abs),
-            temperatures: self
-                .temperature_c
-                .map(|c| Sensor {
-                    id: "pack".into(),
-                    label: Some("Pack".into()),
-                    celsius: c,
-                })
-                .into_iter()
-                .collect(),
-            charge_current_limit_a: self.charge_current_limit,
-            discharge_current_limit_a: self.discharge_current_limit,
-            charging: self.charge_enabled,
-            discharging: self.discharge_enabled,
-            alarms: self.alarms.clone(),
-            ..Default::default()
+            .set(Reading::PowerIn, power.filter(|p| *p > 0.0).map(|v| v as f64))
+            .set(Reading::PowerOut, power.filter(|p| *p < 0.0).map(|v| v.abs() as f64))
+            .set(Reading::ChargeCurrentLimitA, self.charge_current_limit.map(|v| v as f64))
+            .set(Reading::DischargeCurrentLimitA, self.discharge_current_limit.map(|v| v as f64));
+        if let Some(c) = self.temperature_c {
+            s.set_labeled("temp.pack", "Pack", c as f64, Unit::Celsius);
         }
+        s.set_switch(SwitchId::Charging, self.charge_enabled)
+            .set_switch(SwitchId::Discharging, self.discharge_enabled);
+        s.alarms = self.alarms.clone();
+        s
     }
 }
 
@@ -166,15 +159,15 @@ mod tests {
 
         assert!(s.is_ready());
         let st = s.to_status();
-        assert_eq!(st.soc, Some(87.0));
-        assert_eq!(st.soh, Some(100.0));
-        assert!((st.voltage.unwrap() - 53.12).abs() < 1e-3);
-        assert!((st.current.unwrap() - (-15.0)).abs() < 1e-3);
+        assert_eq!(st.soc(), Some(87.0));
+        assert_eq!(st.soh(), Some(100.0));
+        assert!((st.voltage().unwrap() - 53.12).abs() < 1e-3);
+        assert!((st.current().unwrap() - (-15.0)).abs() < 1e-3);
         assert!((st.temperature_c().unwrap() - 21.5).abs() < 1e-3);
         // discharging => power_out positive, power_in none
-        assert!(st.power_in.is_none());
-        assert!((st.power_out.unwrap() - 53.12 * 15.0).abs() < 0.1);
-        assert!((st.charge_current_limit_a.unwrap() - 100.0).abs() < 1e-3);
+        assert!(st.power_in().is_none());
+        assert!((st.power_out().unwrap() - 53.12 * 15.0).abs() < 0.1);
+        assert!((st.reading(Reading::ChargeCurrentLimitA.id()).unwrap() - 100.0).abs() < 1e-3);
     }
 
     #[test]

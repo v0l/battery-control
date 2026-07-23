@@ -6,7 +6,7 @@
 //! type has no public accessor; SOC/voltage/current/MOSFET/capacity are.
 
 use crate::battery::{require, Battery};
-use crate::types::{BatteryStatus, Command};
+use crate::types::{BatteryStatus, Command, Reading, SwitchId};
 use crate::{Capabilities, DeviceInfo, Error, Result};
 use async_trait::async_trait;
 use dalybms_lib::tokio_serial_async::DalyBMS;
@@ -55,21 +55,21 @@ impl Battery for DalyBattery {
         let current = -soc.current;
         let power = soc.total_voltage * current;
 
-        let mut status = BatteryStatus {
-            soc: Some(soc.soc_percent),
-            voltage: Some(soc.total_voltage),
-            current: Some(current),
-            power_in: (power > 0.0).then_some(power),
-            power_out: (power < 0.0).then(|| power.abs()),
-            ..Default::default()
-        };
+        let mut status = BatteryStatus::default();
+        status
+            .set(Reading::Soc, Some(soc.soc_percent as f64))
+            .set(Reading::Voltage, Some(soc.total_voltage as f64))
+            .set(Reading::Current, Some(current as f64))
+            .set(Reading::PowerIn, (power > 0.0).then_some(power as f64))
+            .set(Reading::PowerOut, (power < 0.0).then(|| power.abs() as f64));
 
         // MOSFET status is optional enrichment; ignore failures.
         if let Ok(m) = self.bms.get_mosfet_status().await {
-            status.charging = Some(m.charging_mosfet);
-            status.discharging = Some(m.discharging_mosfet);
-            status.cycles = Some(m.bms_cycles as u32);
-            status.capacity_remaining_ah = Some(m.capacity_ah);
+            status
+                .set_switch(SwitchId::Charging, Some(m.charging_mosfet))
+                .set_switch(SwitchId::Discharging, Some(m.discharging_mosfet))
+                .set(Reading::Cycles, Some(m.bms_cycles as f64))
+                .set(Reading::CapacityRemainingAh, Some(m.capacity_ah as f64));
         }
 
         Ok(status)

@@ -15,6 +15,8 @@ thiserror = "2.0"
 log = "0.4"
 bitflags = "2.6"
 serde = { version = "1.0", features = ["derive"] }
+# `Stream` trait for real-time telemetry (tiny, no_std core traits only).
+futures-core = "0.3"
 
 # CLI (feature = "cli")
 clap = { version = "4.5", features = ["derive"], optional = true }
@@ -22,13 +24,13 @@ serde_json = { version = "1.0", optional = true }
 env_logger = { version = "0.11", optional = true }
 
 # shared async runtime for the wrapping backends
-tokio = { version = "1", features = ["rt", "time", "sync", "io-util"], optional = true }
+tokio = { version = "1", features = ["rt", "time", "sync", "io-util", "macros"], optional = true }
 futures-util = { version = "0.3", optional = true }
 tokio-stream = { version = "0.1", optional = true }
 
 # --- backend crates (each feature-gated) ---
-anker_solix = { version = "0.4", optional = true }
-jk_bms = { version = "0.3", optional = true }
+anker_solix = { git = "https://github.com/v0l/anker-rs.git", rev = "b7b110946f8d860367f92a162b6e8f33c828248b", version = "0.4", optional = true }
+jk_bms = { version = "0.3.2", optional = true, default-features = false }
 # used only for serial port *enumeration* during discovery
 tokio-serial = { version = "5", optional = true }
 dalybms = { version = "0.1", optional = true, default-features = false, features = ["tokio-serial-async"] }
@@ -39,11 +41,19 @@ socketcan = { version = "3", optional = true }
 [features]
 default = ["anker", "pylontech-can"]
 
+# Async plumbing shared by every live backend; enables the unified
+# `Battery::updates` stream (native push or poll-and-diff fallback).
+runtime = ["dep:tokio", "dep:futures-util"]
+
 # Wrapping backends
-anker = ["dep:anker_solix", "dep:tokio"]
-jk = ["dep:jk_bms", "dep:tokio-serial", "dep:tokio"]
-daly = ["dep:dalybms", "dep:tokio", "dep:tokio-serial"]
-victron = ["dep:victron_ble", "dep:tokio", "dep:tokio-stream", "dep:futures-util"]
+anker = ["dep:anker_solix", "runtime"]
+# JK BMS: `jk-ble` and `jk-serial` can be enabled independently (e.g. mobile
+# builds are BLE-only); `jk` is the convenience union of both.
+jk = ["jk-ble", "jk-serial"]
+jk-ble = ["dep:jk_bms", "jk_bms/bluetooth", "runtime"]
+jk-serial = ["dep:jk_bms", "jk_bms/serial", "runtime", "dep:tokio-serial"]
+daly = ["dep:dalybms", "runtime", "dep:tokio-serial"]
+victron = ["dep:victron_ble", "runtime", "dep:tokio-stream"]
 vedirect = ["dep:vedirect"]
 
 # Native protocol decoders

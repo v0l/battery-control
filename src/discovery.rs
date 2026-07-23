@@ -46,9 +46,9 @@ enum Locator {
         /// where the BLE MAC is unavailable.
         dev: anker_solix::Discovered,
     },
-    #[cfg(feature = "jk")]
+    #[cfg(feature = "jk-serial")]
     JkSerial { port: String, baud: u32 },
-    #[cfg(feature = "jk")]
+    #[cfg(feature = "jk-ble")]
     JkBle { id: String },
     #[cfg(feature = "daly")]
     DalySerial { port: String },
@@ -94,12 +94,12 @@ impl Discovered {
                     .map_err(|e| Error::Transport(e.to_string()))?;
                 Ok(Box::new(crate::backends::AnkerBattery::from_device(device)))
             }
-            #[cfg(feature = "jk")]
+            #[cfg(feature = "jk-serial")]
             Locator::JkSerial { port, baud } => {
                 let b = crate::backends::JkBattery::open_serial(port, *baud).await?;
                 Ok(Box::new(b))
             }
-            #[cfg(feature = "jk")]
+            #[cfg(feature = "jk-ble")]
             Locator::JkBle { id } => {
                 let b = crate::backends::JkBattery::connect_bluetooth(id).await?;
                 Ok(Box::new(b))
@@ -118,56 +118,86 @@ impl Discovered {
 }
 
 /// Discover batteries across all enabled transports.
+///
+/// All arms (Anker BLE scan, JK BLE scan, serial probing) run **concurrently**,
+/// so total time is roughly `max(ble_secs, slowest serial probe)` rather than
+/// their sum.
 pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
-    let mut found = Vec::new();
+    #[allow(unused_mut)]
+    let mut found: Vec<Discovered> = Vec::new();
 
+    #[cfg(any(feature = "anker", feature = "jk-ble", feature = "jk-serial", feature = "daly"))]
+    {
+        let (anker, jk, serial) =
+            tokio::join!(scan_anker(opts), scan_jk_ble(opts), scan_serial(opts));
+        for d in anker.into_iter().chain(jk).chain(serial) {
+            if !found.iter().any(|x| x.id == d.id) {
+                found.push(d);
+            }
+        }
+    }
+    #[cfg(not(any(feature = "anker", feature = "jk-ble", feature = "jk-serial", feature = "daly")))]
+    let _ = opts;
+
+    Ok(found)
+}
+
+async fn scan_anker(opts: &DiscoverOptions) -> Vec<Discovered> {
     #[cfg(feature = "anker")]
     {
         match anker_solix::scan(opts.ble_secs).await {
             Ok(devices) => {
-                for d in devices {
-                    found.push(Discovered {
+                return devices
+                    .into_iter()
+                    .map(|d| Discovered {
                         id: format!("ble:{}", d.id),
                         label: d.name.clone(),
                         backend: "anker",
                         class: DeviceClass::PowerStation,
                         locator: Locator::Anker { dev: d },
-                    });
-                }
+                    })
+                    .collect();
             }
             Err(e) => log::warn!("BLE scan failed: {e}"),
         }
     }
+    let _ = opts;
+    Vec::new()
+}
 
-    // JK BMSes that advertise over BLE (identified by their "JK"-prefixed name).
-    #[cfg(feature = "jk")]
+/// JK BMSes that advertise over BLE. `JkBms::scan` filters on the JK serial
+/// service UUID (0xFFE0) — device names are user-customisable via the app, so
+/// a name-based filter would miss renamed units.
+async fn scan_jk_ble(opts: &DiscoverOptions) -> Vec<Discovered> {
+    #[cfg(feature = "jk-ble")]
     {
-        match jk_bms::bt_scan().await {
+        match jk_bms::JkBms::scan(opts.ble_secs).await {
             Ok(devices) => {
-                for d in devices {
-                    let name = d.name.unwrap_or_default();
-                    if !name.to_ascii_uppercase().starts_with("JK") {
-                        continue;
-                    }
-                    found.push(Discovered {
+                return devices
+                    .into_iter()
+                    .map(|d| Discovered {
                         id: format!("ble:{}", d.id),
-                        label: name,
+                        label: d.name.unwrap_or_else(|| "JK BMS".to_string()),
                         backend: "jk",
                         class: DeviceClass::Bms,
                         locator: Locator::JkBle { id: d.id },
-                    });
-                }
+                    })
+                    .collect();
             }
             Err(e) => log::warn!("JK BLE scan failed: {e}"),
         }
     }
+    let _ = opts;
+    Vec::new()
+}
 
-    #[cfg(any(feature = "jk", feature = "daly"))]
+async fn scan_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
+    #[cfg(any(feature = "jk-serial", feature = "daly"))]
     if opts.probe_serial {
-        found.extend(probe_serial(opts).await);
+        return probe_serial(opts).await;
     }
-
-    Ok(found)
+    let _ = opts;
+    Vec::new()
 }
 
 /// Resolve a user query to exactly one discovered device.
@@ -204,7 +234,7 @@ pub fn resolve<'a>(devices: &'a [Discovered], query: &str) -> Result<&'a Discove
 
 // --- Serial probing ----------------------------------------------------------
 
-#[cfg(any(feature = "jk", feature = "daly"))]
+#[cfg(any(feature = "jk-serial", feature = "daly"))]
 async fn probe_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
     use std::time::Duration;
 
@@ -232,15 +262,19 @@ async fn probe_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
     found
 }
 
-#[cfg(any(feature = "jk", feature = "daly"))]
+/// Only real USB/UART adapters are worth probing. Broad patterns like `cu.`
+/// would match every macOS Bluetooth serial alias (headsets, phones, ...) and
+/// `ttys` matches pseudo-terminals — probing those wastes ~10s each and can
+/// never find a BMS.
+#[cfg(any(feature = "jk-serial", feature = "daly"))]
 fn looks_like_uart(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
-    ["ttyusb", "ttyacm", "usbserial", "usbmodem", "cu.", "tty.slab", "ttys"]
+    ["ttyusb", "ttyacm", "usbserial", "usbmodem", "slab", "wchusbserial"]
         .iter()
         .any(|p| n.contains(p))
 }
 
-#[cfg(any(feature = "jk", feature = "daly"))]
+#[cfg(any(feature = "jk-serial", feature = "daly"))]
 async fn probe_one_port(
     port: &str,
     opts: &DiscoverOptions,
@@ -248,7 +282,7 @@ async fn probe_one_port(
 ) -> Option<Discovered> {
     // Try JK first (multiple bauds), then Daly. Each probe fully opens, reads a
     // status frame, and drops the handle before the next attempt.
-    #[cfg(feature = "jk")]
+    #[cfg(feature = "jk-serial")]
     for &baud in &opts.serial_bauds {
         let probe = async {
             let mut b = crate::backends::JkBattery::open_serial(port, baud).await.ok()?;
