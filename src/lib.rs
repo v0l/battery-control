@@ -41,6 +41,103 @@ mod tests {
         data[299] = crate::protocol::crc(data, 299);
     }
 
+    // --- jk_read over a fragmenting transport (regression: BLE heartbeats +
+    // frames split across reads used to yield NoVoltageData) ---
+
+    /// Mock transport that ignores writes and serves a scripted sequence of
+    /// read chunks, mimicking BLE notification delivery.
+    struct ScriptedTransport {
+        reads: std::collections::VecDeque<Vec<u8>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Transport for ScriptedTransport {
+        async fn open(&mut self) -> Result<()> {
+            Ok(())
+        }
+        async fn close(&mut self) -> Result<()> {
+            Ok(())
+        }
+        async fn write(&mut self, data: &[u8]) -> Result<usize> {
+            Ok(data.len())
+        }
+        async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+            let Some(chunk) = self.reads.pop_front() else {
+                return Ok(0);
+            };
+            buf[..chunk.len()].copy_from_slice(&chunk);
+            Ok(chunk.len())
+        }
+    }
+
+    fn info_frame() -> Vec<u8> {
+        let mut f = vec![0u8; 300];
+        f[0] = 0x55; f[1] = 0xAA; f[2] = 0xEB; f[3] = 0x90;
+        f[4] = 0x03; // info frame
+        let model = b"JK-B2A16S";
+        f[6..6 + model.len()].copy_from_slice(model);
+        finalize_frame(&mut f);
+        f
+    }
+
+    fn cell_frame() -> Vec<u8> {
+        let mut f = vec![0u8; 300];
+        f[0] = 0x55; f[1] = 0xAA; f[2] = 0xEB; f[3] = 0x90;
+        f[4] = 0x02; // cell info frame
+        f[6] = 0xAC; f[7] = 0x0D; // 3500 mV
+        f[118] = 0x00; f[119] = 0xC8; f[120] = 0x00; f[121] = 0x00;
+        finalize_frame(&mut f);
+        f
+    }
+
+    #[tokio::test]
+    async fn test_jk_read_fragmented_with_heartbeats() {
+        let info = info_frame();
+        let cell = cell_frame();
+
+        // Interleave 4-byte heartbeats and split both frames across reads,
+        // starting phase 2 mid-stream (stale partial frame before a fresh one).
+        let reads: std::collections::VecDeque<Vec<u8>> = [
+            // phase 1: getInfo
+            vec![0xAA, 0x55, 0x90, 0xEB],   // heartbeat
+            info[..150].to_vec(),           // info frame, fragmented
+            info[150..].to_vec(),
+            // phase 2: getCellInfo
+            cell[250..].to_vec(),           // tail of a stale frame
+            vec![0xAA, 0x55, 0x90, 0xEB],   // heartbeat
+            cell[..100].to_vec(),           // fresh frame, fragmented
+            cell[100..250].to_vec(),
+            cell[250..].to_vec(),
+        ]
+        .into_iter()
+        .collect();
+
+        let mut pack = MybmmPack::new("test");
+        let mut session = JkSession {
+            pp: pack.clone(),
+            tp: MybmmModule::new("test", 0),
+            tp_handle: Some(Box::new(ScriptedTransport { reads })),
+        };
+
+        jk_read(&mut session, &mut pack).await.expect("jk_read should succeed");
+        assert_eq!(pack.model, "JK-B2A16S");
+        assert!((pack.voltage - 51.2).abs() < 0.01);
+    }
+
+    #[tokio::test]
+    async fn test_jk_read_no_data_errors() {
+        let mut pack = MybmmPack::new("test");
+        let mut session = JkSession {
+            pp: pack.clone(),
+            tp: MybmmModule::new("test", 0),
+            tp_handle: Some(Box::new(ScriptedTransport {
+                reads: std::collections::VecDeque::new(),
+            })),
+        };
+        let err = jk_read(&mut session, &mut pack).await.unwrap_err();
+        assert!(matches!(err, JkError::NoVoltageData));
+    }
+
     #[test]
     fn test_get_short() {
         let data: [u8; 4] = [0x00, 0x04, 0x00, 0x00];

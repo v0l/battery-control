@@ -59,54 +59,61 @@ pub async fn jk_open(session: &mut JkSession) -> Result<()> {
 }
 
 pub async fn jk_read(session: &mut JkSession, pp: &mut MybmmPack) -> Result<()> {
-    use crate::protocol::{getdata, get_info_command, get_cell_info_command};
+    use crate::protocol::{get_info_command, get_cell_info_command, FrameAssembler};
+
+    /// Reads attempted per command before giving up. Each transport read may
+    /// itself block for a few seconds (BLE notification timeout).
+    const READS_PER_COMMAND: u32 = 8;
+
+    let handle = session
+        .tp_handle
+        .as_mut()
+        .ok_or(JkError::TransportNotInitialized)?;
 
     let mut data = vec![0u8; 2048];
-    let mut retries = 5;
+    // Frames are routinely fragmented across reads (BLE notifications) and
+    // interleaved with short heartbeat packets, so every read is fed through
+    // the assembler instead of being parsed raw — raw parsing silently drops
+    // any frame that doesn't arrive whole and aligned in a single read.
+    let mut asm = FrameAssembler::new();
 
+    // Phase 1: device info (model, protocol version). Non-fatal if missed;
+    // the pack keeps whatever was learned on a previous read.
     let info_cmd = get_info_command();
-    while retries > 0 {
-        if let Some(ref mut handle) = session.tp_handle {
-            let written = handle.write(&info_cmd).await?;
-            log::debug!("Wrote {} bytes for getInfo", written);
-            
-            let bytes = handle.read(&mut data).await?;
-            log::debug!("Read {} bytes for getInfo", bytes);
-            
-            let flags = getdata(pp, &data[..bytes]);
+    let written = handle.write(&info_cmd).await?;
+    log::debug!("Wrote {} bytes for getInfo", written);
+    for _ in 0..READS_PER_COMMAND {
+        let bytes = handle.read(&mut data).await?;
+        log::debug!("Read {} bytes for getInfo", bytes);
+        if bytes == 0 {
+            continue;
+        }
+        if let Some(flags) = asm.feed_and_decode(pp, &data[..bytes]) {
             if flags.got_info {
                 break;
             }
         }
-        retries -= 1;
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
 
+    // Phase 2: cell info (voltages, current, SOC, ...). Required.
+    asm.clear();
     let cell_info_cmd = get_cell_info_command();
-    if let Some(ref mut handle) = session.tp_handle {
-        let written = handle.write(&cell_info_cmd).await?;
-        log::debug!("Wrote {} bytes for getCellInfo", written);
-    }
-
-    retries = 5;
-    while retries > 0 {
-        if let Some(ref mut handle) = session.tp_handle {
-            let bytes = handle.read(&mut data).await?;
-            log::debug!("Read {} bytes for getCellInfo", bytes);
-            
-            let flags = getdata(pp, &data[..bytes]);
+    let written = handle.write(&cell_info_cmd).await?;
+    log::debug!("Wrote {} bytes for getCellInfo", written);
+    for _ in 0..READS_PER_COMMAND {
+        let bytes = handle.read(&mut data).await?;
+        log::debug!("Read {} bytes for getCellInfo", bytes);
+        if bytes == 0 {
+            continue;
+        }
+        if let Some(flags) = asm.feed_and_decode(pp, &data[..bytes]) {
             if flags.got_volts {
                 return Ok(());
             }
         }
-        retries -= 1;
     }
 
-    if retries == 0 {
-        Err(JkError::NoVoltageData)
-    } else {
-        Ok(())
-    }
+    Err(JkError::NoVoltageData)
 }
 
 pub async fn jk_close(session: &mut JkSession) -> Result<()> {
