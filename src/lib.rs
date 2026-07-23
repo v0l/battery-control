@@ -1,3 +1,4 @@
+pub mod bms;
 pub mod error;
 pub mod pack;
 pub mod protocol;
@@ -9,6 +10,7 @@ pub mod transport;
 pub use error::{JkError, Result};
 pub use pack::{MybmmPack, ProtocolVersion, JkSettings};
 pub use protocol::{getdata, get_info_command, get_cell_info_command, get_settings_command, get_short, get_signed_short, crc, error_bitmask_to_strings, ERROR_DESCRIPTIONS, FrameAssembler, ParseFlags, get_16bit, get_32bit, ieee_float, SettingDef, SETTINGS, get_setting_register, get_setting_def, get_setting_by_register, build_write_frame, build_setting_write_frame, CAN_FRAME_SIZE, CAN_CMD_INFO, CAN_CMD_CELL_INFO, CAN_CMD_WRITE_REG, build_can_command, get_can_info_command, get_can_cell_info_command, build_can_write_frame, build_can_setting_write_frame};
+pub use bms::{read_data, JkBms};
 pub use session::JkSession;
 pub use module::{MybmmModule, Transport, jk_init, jk_new, jk_open, jk_read, jk_close, jk_control, MYBMM_CHARGE_CONTROL, MYBMM_DISCHARGE_CONTROL, MYBMM_BALANCE_CONTROL};
 pub use jk_info::{JkInfo, parse_info_strings};
@@ -122,6 +124,37 @@ mod tests {
         jk_read(&mut session, &mut pack).await.expect("jk_read should succeed");
         assert_eq!(pack.model, "JK-B2A16S");
         assert!((pack.voltage - 51.2).abs() < 0.01);
+    }
+
+    #[tokio::test]
+    async fn test_next_update_streams_pushed_frames() {
+        let cell = cell_frame();
+
+        // Two pushed frames, each fragmented, with heartbeats interleaved —
+        // no re-request between them.
+        let reads: std::collections::VecDeque<Vec<u8>> = [
+            vec![0xAA, 0x55, 0x90, 0xEB],
+            cell[..120].to_vec(),
+            cell[120..].to_vec(),
+            cell[..40].to_vec(),
+            cell[40..280].to_vec(),
+            cell[280..].to_vec(),
+        ]
+        .into_iter()
+        .collect();
+
+        let mut bms = JkBms::open("test", "mock", Box::new(ScriptedTransport { reads }))
+            .await
+            .unwrap();
+
+        let timeout = std::time::Duration::from_millis(200);
+        let pack = bms.next_update(timeout).await.expect("first update");
+        assert!((pack.voltage - 51.2).abs() < 0.01);
+        let _ = bms.next_update(timeout).await.expect("second update");
+
+        // Stream exhausted -> timeout.
+        let err = bms.next_update(std::time::Duration::from_millis(20)).await.unwrap_err();
+        assert!(matches!(err, JkError::Timeout));
     }
 
     #[tokio::test]

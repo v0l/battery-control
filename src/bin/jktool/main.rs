@@ -1,6 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
-use jk_bms::{MybmmPack, MybmmModule, Transport, JkInfo, FrameAssembler, ProtocolVersion};
-use jk_bms::{get_info_command, get_cell_info_command, get_can_info_command, get_can_cell_info_command};
+use jk_bms::{MybmmPack, MybmmModule, Transport, JkInfo, ProtocolVersion};
 use jk_bms::{SETTINGS, build_setting_write_frame, build_can_setting_write_frame};
 
 #[cfg(feature = "serial")]
@@ -244,119 +243,11 @@ async fn main() {
 }
 
 async fn do_read(session: &mut jk_bms::JkSession, pack: &mut MybmmPack, cli: &Cli, need_settings: bool) -> JkInfo {
-    let mut data_buf = vec![0u8; 2048];
-    let mut assembler = FrameAssembler::new();
-    let mut retries = 5;
-    
-    // Determine if we're using CAN transport
-    let is_can = session.tp_handle.as_ref()
-        .map(|_| pack.transport == "can")
-        .unwrap_or(false);
-
-    // Phase 1: send getInfo, parse info response
-    let info_cmd = if is_can {
-        get_can_info_command().to_vec()
-    } else {
-        get_info_command().to_vec()
-    };
-    let mut _got_info = false;
-    while retries > 0 {
-        if let Some(ref mut handle) = session.tp_handle {
-            if let Err(e) = handle.write(&info_cmd).await {
-                eprintln!("Write error: {}", e);
-                break;
-            }
-            let read_start = std::time::Instant::now();
-            while read_start.elapsed() < std::time::Duration::from_secs(3) {
-                match handle.read(&mut data_buf).await {
-                    Ok(bytes) if bytes > 0 => {
-                        if cli.debug > 0 {
-                            eprintln!("DEBUG: phase1 read {} bytes", bytes);
-                            dump_buffer_hex(&data_buf[..bytes]);
-                        }
-                        if let Some(flags) = assembler.feed_and_decode(pack, &data_buf[..bytes]) {
-                            if flags.got_info {
-                                _got_info = true;
-                                break;
-                            }
-                        }
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("Read error: {}", e);
-                        break;
-                    }
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            }
-            if _got_info {
-                break;
-            }
-        }
-        retries -= 1;
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    // The read loop lives in the library (shared with `JkBms::read`).
+    if let Err(e) = jk_bms::read_data(session, pack, need_settings).await {
+        eprintln!("Warning: {}", e);
     }
-
-    // Phase 2: send getCellInfo, parse voltage + settings data
-    let cell_cmd = if is_can {
-        get_can_cell_info_command().to_vec()
-    } else {
-        get_cell_info_command().to_vec()
-    };
-    let mut got_volt = false;
-    let mut got_settings = pack.settings.is_some();
-    retries = 5;
-
-    assembler.clear();
-
-    if let Some(ref mut handle) = session.tp_handle {
-        let _ = handle.write(&cell_cmd).await;
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    }
-
-    while retries > 0 {
-        if let Some(ref mut handle) = session.tp_handle {
-            let read_start = std::time::Instant::now();
-            while read_start.elapsed() < std::time::Duration::from_secs(3) {
-                match handle.read(&mut data_buf).await {
-                    Ok(bytes) if bytes > 0 => {
-                        if cli.debug > 0 {
-                            eprintln!("DEBUG: phase2 read {} bytes", bytes);
-                            dump_buffer_hex(&data_buf[..bytes]);
-                        }
-                        if let Some(flags) = assembler.feed_and_decode(pack, &data_buf[..bytes]) {
-                            if flags.got_volts {
-                                got_volt = true;
-                            }
-                            if flags.got_res {
-                                got_settings = true;
-                            }
-                            // Stop when we have both cell data and settings (if needed)
-                            if got_volt && (!need_settings || got_settings) {
-                                break;
-                            }
-                        }
-                    }
-                    Ok(_) => {}
-                    Err(e) => {
-                        eprintln!("Read error: {}", e);
-                        break;
-                    }
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            }
-            if got_volt && (!need_settings || got_settings) {
-                break;
-            }
-        }
-        retries -= 1;
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-    }
-
-    if !got_volt {
-        eprintln!("Warning: failed to read voltage data from BMS");
-    }
-
+    let _ = cli;
     JkInfo::from_pack(pack)
 }
 
@@ -714,24 +605,6 @@ fn list_settings(cli: &Cli) {
                     if s.is_switch { "yes" } else { "" });
             }
         }
-    }
-}
-
-fn dump_buffer_hex(data: &[u8]) {
-    for (i, chunk) in data.chunks(16).enumerate() {
-        eprint!("{:04x} | ", i * 16);
-        for b in chunk {
-            eprint!("{:02x} ", b);
-        }
-        for _ in 0..(16 - chunk.len()) {
-            eprint!("   ");
-        }
-        eprint!("| ");
-        for b in chunk {
-            let c = if b.is_ascii_graphic() || *b == b' ' { *b as char } else { '.' };
-            eprint!("{}", c);
-        }
-        eprintln!();
     }
 }
 

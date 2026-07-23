@@ -23,6 +23,9 @@ pub enum JkError {
     #[error("No voltage data found")]
     NoVoltageData,
 
+    #[error("Timed out waiting for BMS update")]
+    Timeout,
+
     #[error("Protocol error: {0}")]
     ProtocolError(String),
 
