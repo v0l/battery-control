@@ -1,0 +1,46 @@
+[package]
+name = "anker_solix"
+version = "0.4.0"
+edition = "2024"
+rust-version = "1.85"
+description = "Library and CLI for monitoring/controlling Anker SOLIX power stations over Bluetooth LE"
+license = "MIT"
+repository = "https://github.com/v0l/anker-rs"
+homepage = "https://github.com/v0l/anker-rs"
+documentation = "https://docs.rs/anker_solix"
+readme = "README.md"
+keywords = ["anker", "solix", "bluetooth", "ble", "battery"]
+categories = ["command-line-utilities", "hardware-support"]
+exclude = [".github/"]
+
+[dependencies]
+thiserror = "2.0"
+log = "0.4"
+env_logger = "0.11"
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# BLE + async
+btleplug = "0.12"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+futures-util = "0.3"
+uuid = "1"
+
+# crypto: ECDH (secp256r1) + AES-128-CBC
+p256 = { version = "0.13", features = ["ecdh"] }
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+cipher = { version = "0.4", features = ["block-padding", "alloc"] }
+hex = "0.4"
+aes-gcm = "0.11.0"
+hmac = "0.12"
+sha2 = "0.10"
+
+[lib]
+name = "anker_solix"
+path = "src/lib.rs"
+
+[[bin]]
+name = "anker"
+path = "src/bin/anker/main.rs"
