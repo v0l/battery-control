@@ -1,6 +1,6 @@
 [package]
 name = "jk_bms"
-version = "0.3.3"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Async library and CLI (jktool) for JIKONG (JK) Battery Management Systems over Serial, Bluetooth LE and CAN"

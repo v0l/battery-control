@@ -8,6 +8,7 @@ use futures_util::{Stream, StreamExt};
 use uuid::Uuid;
 
 /// A discovered BLE device.
+#[derive(Debug, Clone)]
 pub struct BtDevice {
     pub name: Option<String>,
     /// Stable, platform-independent identifier from btleplug's `Peripheral::id()`.
@@ -15,6 +16,29 @@ pub struct BtDevice {
     /// zeroed out on macOS.
     pub id: String,
     pub rssi: Option<i16>,
+    /// Pack address on a multi-pack (RS485-linked) bank, parsed from the
+    /// `-NN` name suffix JK-PB units advertise (`-00` = master, `-01`+ =
+    /// slaves). `None` for standalone units without a suffix.
+    pub address: Option<u8>,
+}
+
+impl BtDevice {
+    /// Whether this unit answers BLE requests itself. On a linked bank only
+    /// the master (address 00) responds; slaves must be read through it.
+    pub fn is_master(&self) -> bool {
+        self.address.is_none_or(|a| a == 0)
+    }
+}
+
+/// Parse the JK-PB pack address from a device name's trailing `-NN` suffix
+/// (exactly two ASCII digits), e.g. `"REPT280-00"` → `Some(0)`.
+pub fn parse_pack_address(name: &str) -> Option<u8> {
+    let (_, suffix) = name.rsplit_once('-')?;
+    if suffix.len() == 2 && suffix.bytes().all(|b| b.is_ascii_digit()) {
+        suffix.parse().ok()
+    } else {
+        None
+    }
 }
 
 pub async fn scan() -> Result<Vec<BtDevice>> {
@@ -44,6 +68,7 @@ pub async fn scan() -> Result<Vec<BtDevice>> {
         }
 
         devices.push(BtDevice {
+            address: name.as_deref().and_then(parse_pack_address),
             name,
             id: peripheral.id().to_string(),
             rssi,

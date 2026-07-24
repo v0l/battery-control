@@ -10,7 +10,7 @@
 #[cfg(feature = "bluetooth")]
 mod bluetooth;
 #[cfg(feature = "bluetooth")]
-pub use bluetooth::{BluetoothTransport, BtDevice, scan};
+pub use bluetooth::{parse_pack_address, BluetoothTransport, BtDevice, scan};
 
 #[cfg(feature = "serial")]
 mod serial;
