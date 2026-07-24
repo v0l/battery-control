@@ -41,6 +41,11 @@ pub mod bluetti;
 #[cfg(feature = "bluetti")]
 pub use bluetti::BluettiStation;
 
+#[cfg(feature = "jackery")]
+pub mod jackery;
+#[cfg(feature = "jackery")]
+pub use jackery::JackeryStation;
+
 #[cfg(feature = "daly")]
 pub mod daly;
 #[cfg(feature = "daly")]

@@ -1,0 +1,40 @@
+[package]
+name = "jackery"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Jackery portable power station protocol (local BLE) — no cloud"
+license = "MIT"
+repository = "https://github.com/v0l/battery-control"
+keywords = ["jackery", "power-station", "bluetooth", "solar"]
+categories = ["hardware-support"]
+
+[dependencies]
+modbus_lite = { path = "../modbus_lite", version = "0.1" }
+ble_util = { path = "../ble_util", version = "0.1" }
+thiserror = "2.0"
+log = "0.4"
+async-trait = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rand = "0.8"
+aes = "0.8"
+cbc = { version = "0.1", features = ["alloc"] }
+
+btleplug = { version = "0.12", optional = true }
+uuid = { version = "1", optional = true }
+tokio = { version = "1", features = ["rt", "time", "sync", "io-util", "macros"], optional = true }
+futures-util = { version = "0.3", optional = true }
+
+clap = { version = "4.5", features = ["derive"], optional = true }
+env_logger = { version = "0.11", optional = true }
+
+[features]
+default = ["bluetooth"]
+bluetooth = ["dep:btleplug", "dep:uuid", "dep:tokio", "dep:futures-util", "ble_util/gatt"]
+cli = ["bluetooth", "dep:clap", "dep:env_logger", "tokio/rt-multi-thread", "tokio/macros"]
+
+[[bin]]
+name = "jackerytool"
+path = "src/bin/jackerytool/main.rs"
+required-features = ["cli"]

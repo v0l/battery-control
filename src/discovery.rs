@@ -60,6 +60,13 @@ enum Locator {
     RenogyBle { id: String },
     #[cfg(feature = "bluetti")]
     BluettiBle { id: String },
+    #[cfg(feature = "jackery")]
+    JackeryBle {
+        id: String,
+        key: Vec<u8>,
+        model: u16,
+        serial: String,
+    },
     #[cfg(feature = "daly")]
     DalySerial { port: String },
     #[cfg(feature = "pace")]
@@ -147,6 +154,17 @@ impl Discovered {
                 let b = crate::backends::BluettiStation::connect_bluetooth(id).await?;
                 Ok(Box::new(b))
             }
+            #[cfg(feature = "jackery")]
+            Locator::JackeryBle { id, key, model, serial } => {
+                let b = crate::backends::JackeryStation::connect_bluetooth(
+                    id,
+                    key.clone(),
+                    *model,
+                    serial.clone(),
+                )
+                .await?;
+                Ok(Box::new(b))
+            }
             #[cfg(feature = "daly")]
             Locator::DalySerial { port } => {
                 let b = crate::backends::DalyBattery::open_serial(port)?;
@@ -198,6 +216,7 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
         feature = "sok",
         feature = "renogy",
         feature = "bluetti",
+        feature = "jackery",
         feature = "daly",
         feature = "pace",
         feature = "seplos",
@@ -207,11 +226,12 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
     {
         // SOK is scanned before JK: both advertise service ffe0, so listing SOK
         // first lets it claim its packs (by name) before the id-dedup runs.
-        let (anker, sok, renogy, bluetti, jk, jbd, serial) = tokio::join!(
+        let (anker, sok, renogy, bluetti, jackery, jk, jbd, serial) = tokio::join!(
             scan_anker(opts),
             scan_sok_ble(opts),
             scan_renogy_ble(opts),
             scan_bluetti_ble(opts),
+            scan_jackery_ble(opts),
             scan_jk_ble(opts),
             scan_jbd_ble(opts),
             scan_serial(opts)
@@ -221,6 +241,7 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
             .chain(sok)
             .chain(renogy)
             .chain(bluetti)
+            .chain(jackery)
             .chain(jk)
             .chain(jbd)
             .chain(serial)
@@ -239,6 +260,7 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
         feature = "sok",
         feature = "renogy",
         feature = "bluetti",
+        feature = "jackery",
         feature = "daly",
         feature = "pace",
         feature = "seplos",
@@ -397,6 +419,39 @@ async fn scan_bluetti_ble(opts: &DiscoverOptions) -> Vec<Discovered> {
                     .collect();
             }
             Err(e) => log::warn!("Bluetti BLE scan failed: {e}"),
+        }
+    }
+    let _ = opts;
+    Vec::new()
+}
+
+/// Jackery power stations advertising over BLE (local only). The key is derived
+/// from the advertisement during the scan and carried in the locator.
+async fn scan_jackery_ble(opts: &DiscoverOptions) -> Vec<Discovered> {
+    #[cfg(feature = "jackery")]
+    {
+        match jackery::scan(opts.ble_secs).await {
+            Ok(devices) => {
+                return devices
+                    .into_iter()
+                    .map(|d| Discovered {
+                        id: format!("ble:{}", d.id),
+                        label: d
+                            .name
+                            .clone()
+                            .unwrap_or_else(|| jackery::model_name(d.model)),
+                        backend: "jackery",
+                        class: DeviceClass::PowerStation,
+                        locator: Locator::JackeryBle {
+                            id: d.id,
+                            key: d.key,
+                            model: d.model,
+                            serial: d.serial,
+                        },
+                    })
+                    .collect();
+            }
+            Err(e) => log::warn!("Jackery BLE scan failed: {e}"),
         }
     }
     let _ = opts;

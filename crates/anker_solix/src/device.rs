@@ -43,6 +43,8 @@ pub struct Device {
     /// Reference instant for the replay-protection timestamp (set at stage 3).
     negotiated_at: Instant,
     fragmenter: Fragmenter,
+    /// Raw TLV params from the most recent decoded telemetry snapshot.
+    last_params: Params,
     /// Session AES-128-GCM key once the *secure* (gen-2 settings) channel is
     /// negotiated. Present only after [`Device::negotiate_secure`].
     secure_key: Option<[u8; 16]>,
@@ -215,6 +217,7 @@ impl Device {
             shared_secret: [0u8; 32],
             negotiated_at: Instant::now(),
             fragmenter: Fragmenter::new(),
+            last_params: Params::new(),
             secure_key: None,
             secure_nonce: crate::crypto::SECURE_NONCE,
         };
@@ -610,6 +613,7 @@ impl Device {
                     None => decrypt(&self.shared_secret, &body)?,
                 };
                 let params = parse_params(&plaintext);
+                self.last_params = params.clone();
                 if std::env::var("ANKER_DUMP").is_ok() {
                     let mut keys: Vec<_> = params.keys().cloned().collect();
                     keys.sort();
@@ -624,6 +628,14 @@ impl Device {
             log::debug!("unhandled session cmd {:02x?}", packet.cmd);
         }
         Ok(None)
+    }
+
+    /// Wait for the next telemetry snapshot and return its raw TLV param map
+    /// (`a5`,`a6`,`d9`,…). Useful for differential setting discovery: diff the
+    /// map before/after a write to see which bytes a command moved.
+    pub async fn next_params(&mut self, timeout: Duration) -> Result<Params> {
+        self.next_telemetry(timeout).await?;
+        Ok(self.last_params.clone())
     }
 
     /// Turn the AC output on or off.
