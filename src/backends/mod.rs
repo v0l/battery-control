@@ -21,6 +21,11 @@ pub mod sok;
 #[cfg(feature = "sok")]
 pub use sok::SokBattery;
 
+#[cfg(feature = "renogy")]
+pub mod renogy;
+#[cfg(feature = "renogy")]
+pub use renogy::RenogyBattery;
+
 #[cfg(feature = "daly")]
 pub mod daly;
 #[cfg(feature = "daly")]

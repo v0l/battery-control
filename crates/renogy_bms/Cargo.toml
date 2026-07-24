@@ -1,0 +1,33 @@
+[package]
+name = "renogy_bms"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Renogy smart battery protocol (Modbus RTU over BLE via BT-1/BT-2)"
+license = "MIT"
+repository = "https://github.com/v0l/battery-control"
+keywords = ["bms", "battery", "renogy", "modbus", "bluetooth"]
+categories = ["hardware-support"]
+
+[dependencies]
+thiserror = "2.0"
+log = "0.4"
+async-trait = "0.1"
+
+btleplug = { version = "0.12", optional = true }
+uuid = { version = "1", optional = true }
+tokio = { version = "1", features = ["rt", "time", "sync", "io-util", "macros"], optional = true }
+futures-util = { version = "0.3", optional = true }
+
+clap = { version = "4.5", features = ["derive"], optional = true }
+env_logger = { version = "0.11", optional = true }
+
+[features]
+default = ["bluetooth"]
+bluetooth = ["dep:btleplug", "dep:uuid", "dep:tokio", "dep:futures-util"]
+cli = ["bluetooth", "dep:clap", "dep:env_logger", "tokio/rt-multi-thread", "tokio/macros"]
+
+[[bin]]
+name = "renogytool"
+path = "src/bin/renogytool/main.rs"
+required-features = ["cli"]
