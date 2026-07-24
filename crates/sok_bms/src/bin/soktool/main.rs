@@ -24,6 +24,8 @@ struct Cli {
 enum Command {
     /// Discover SOK devices over BLE
     Scan,
+    /// List all GATT services/characteristics (diagnostic)
+    Gatt,
     /// Read live data once (default)
     Read,
     /// Stream live data until Ctrl-C
@@ -45,6 +47,15 @@ async fn main() -> Result<()> {
     let _ = b.try_init();
 
     match &cli.cmd {
+        Command::Gatt => {
+            let t = cli
+                .transport
+                .as_deref()
+                .ok_or_else(|| sok_bms::Error::Transport("need --transport bt:<id>".into()))?;
+            let id = t.strip_prefix("bt:").unwrap_or(t);
+            print!("{}", sok_bms::transport::inspect(id).await?);
+            Ok(())
+        }
         Command::Scan => {
             let devices = sok_bms::scan(4).await?;
             if devices.is_empty() {

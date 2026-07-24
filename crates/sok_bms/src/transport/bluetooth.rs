@@ -102,6 +102,45 @@ pub async fn scan(secs: u64) -> Result<Vec<BtDevice>> {
     Ok(out)
 }
 
+/// Connect and list every GATT service/characteristic (a diagnostic used to
+/// tell what a device actually supports — advertised services can lie).
+pub async fn inspect(id: &str) -> Result<String> {
+    let adapter = adapter().await?;
+    adapter
+        .start_scan(ScanFilter::default())
+        .await
+        .map_err(|e| Error::Transport(format!("bt scan: {e}")))?;
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    let peripherals = adapter
+        .peripherals()
+        .await
+        .map_err(|e| Error::Transport(format!("bt peripherals: {e}")))?;
+    let p = peripherals
+        .into_iter()
+        .find(|p| p.id().to_string().eq_ignore_ascii_case(id))
+        .ok_or(Error::NotFound)?;
+    p.connect()
+        .await
+        .map_err(|e| Error::Transport(format!("bt connect: {e}")))?;
+    p.discover_services()
+        .await
+        .map_err(|e| Error::Transport(format!("bt discover: {e}")))?;
+
+    let mut chars: Vec<_> = p.characteristics().into_iter().collect();
+    chars.sort_by_key(|c| (c.service_uuid, c.uuid));
+    let mut out = String::new();
+    let mut last_service = None;
+    for c in chars {
+        if last_service != Some(c.service_uuid) {
+            out.push_str(&format!("service {}\n", c.service_uuid));
+            last_service = Some(c.service_uuid);
+        }
+        out.push_str(&format!("  char {}  {:?}\n", c.uuid, c.properties));
+    }
+    let _ = p.disconnect().await;
+    Ok(out)
+}
+
 type NotificationStream = Pin<Box<dyn Stream<Item = ValueNotification> + Send>>;
 
 pub struct BluetoothTransport {

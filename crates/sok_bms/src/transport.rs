@@ -19,4 +19,4 @@ pub trait Transport: Send {
 #[cfg(feature = "bluetooth")]
 mod bluetooth;
 #[cfg(feature = "bluetooth")]
-pub use bluetooth::{scan, BluetoothTransport, BtDevice};
+pub use bluetooth::{inspect, scan, BluetoothTransport, BtDevice};
