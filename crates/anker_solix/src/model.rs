@@ -188,6 +188,17 @@ pub struct Telemetry {
     pub software_version: Option<String>,
     pub serial_number: Option<String>,
     pub part_number: Option<String>,
+
+    // --- decoded settings (gen-2; write via the `set_*` methods) ---
+    pub ac_charge_power_w: Option<i64>,
+    pub ac_frequency_hz: Option<i64>,
+    pub smart_ac: Option<bool>,
+    pub car_saving: Option<bool>,
+    pub standby_timeout_min: Option<i64>,
+    pub screen_timeout_min: Option<i64>,
+    pub display_brightness: Option<i64>,
+    pub port_memory: Option<bool>,
+    pub screensaver: Option<bool>,
 }
 
 impl Telemetry {
@@ -202,6 +213,15 @@ impl Telemetry {
     fn from_params_gen2(p: &Params) -> Telemetry {
         let range = |k: &str, b: usize, e: usize, s: bool| param_int_range(p, k, b, Some(e), s);
         let tail = |k: &str, b: usize| param_int(p, k, b, false);
+        // big-endian u16 at bytes [i,i+1] of a settings param
+        fn be16(p: &Params, k: &str, i: usize) -> Option<i64> {
+            let b = p.get(k)?;
+            (i + 1 < b.len()).then(|| ((b[i] as i64) << 8) | b[i + 1] as i64)
+        }
+        // single boolean byte
+        fn boolb(p: &Params, k: &str, i: usize) -> Option<bool> {
+            p.get(k).and_then(|b| b.get(i)).map(|&v| v != 0)
+        }
         Telemetry {
             temperature_c: range("a5", 1, 2, true),
             battery_percentage: range("a5", 3, 4, false),
@@ -243,6 +263,18 @@ impl Telemetry {
 
             serial_number: param_string_range(p, "a2", 3, Some(20)),
             part_number: param_string_range(p, "a2", 22, Some(27)),
+
+            // Settings vector `a4` (offsets recovered by RE; u16 fields are
+            // big-endian). `screensaver` lives in `da`.
+            ac_charge_power_w: be16(p, "a4", 5),
+            ac_frequency_hz: range("a4", 7, 8, false),
+            smart_ac: boolb(p, "a4", 8),
+            car_saving: boolb(p, "a4", 13),
+            standby_timeout_min: be16(p, "a4", 14),
+            screen_timeout_min: be16(p, "a4", 16),
+            display_brightness: range("a4", 18, 19, false),
+            port_memory: boolb(p, "a4", 23),
+            screensaver: boolb(p, "da", 1),
             ..Default::default()
         }
     }

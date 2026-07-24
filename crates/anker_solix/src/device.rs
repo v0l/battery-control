@@ -507,9 +507,8 @@ impl Device {
     /// (big-endian). Used for wider settings (timeouts in minutes, AC charge
     /// power in watts). Values <= 255 still use the 1-byte form.
     pub async fn set_setting16(&mut self, opcode: [u8; 2], field_id: u8, value: u16) -> Result<()> {
-        if value <= 0xff {
-            return self.set_setting(opcode, field_id, value as u8).await;
-        }
+        // These are genuine u16 fields: always send the 2-byte form. A 1-byte
+        // write lands in the high byte (verified), so never downgrade.
         let [hi, lo] = value.to_be_bytes();
         let payload = [0xa1u8, 0x01, 0x21, field_id, 0x03, 0x02, hi, lo];
         self.send_secure_recv(opcode, &payload, Duration::from_secs(4)).await?;

@@ -252,6 +252,8 @@ pub enum Unit {
     Hour,
     /// Seconds, `s` (protection delays/recovery times).
     Second,
+    /// Minutes, `min` (standby/screen timeouts).
+    Minute,
     /// Dimensionless count (cycles).
     Count,
 }
@@ -268,6 +270,7 @@ impl Unit {
             Unit::AmpHour => "Ah",
             Unit::Hour => "h",
             Unit::Second => "s",
+            Unit::Minute => "min",
             Unit::Count => "",
         }
     }

@@ -1,7 +1,10 @@
 //! Adapter for [`anker_solix`] — Anker SOLIX portable power stations over BLE.
 
 use crate::battery::Battery;
-use crate::types::{BatteryStatus, Command, PortDirection, PortInfo, Reading, Unit};
+use crate::types::{
+    BatteryStatus, Command, PortDirection, PortInfo, Reading, Setting, SettingKind, SettingValue,
+    Unit,
+};
 use crate::{Capabilities, DeviceInfo, Error, Result};
 use anker_solix::{Brightness, Device, PortStatus as AnkerPort, Telemetry};
 use async_trait::async_trait;
@@ -11,6 +14,10 @@ use std::time::Duration;
 pub struct AnkerBattery {
     device: Device,
     info: DeviceInfo,
+    /// Last-seen SOC limits, cached so a single-field write can supply the pair
+    /// that [`anker_solix::Device::set_soc_limits`] requires.
+    soc_max: Option<u8>,
+    soc_min: Option<u8>,
 }
 
 impl AnkerBattery {
@@ -24,7 +31,7 @@ impl AnkerBattery {
             model: Some(device.name().to_string()),
             ..Default::default()
         };
-        Ok(Self { device, info })
+        Ok(Self { device, info, soc_max: None, soc_min: None })
     }
 
     /// Wrap an already-connected [`anker_solix::Device`].
@@ -34,8 +41,138 @@ impl AnkerBattery {
             model: Some(device.name().to_string()),
             ..Default::default()
         };
-        Self { device, info }
+        Self { device, info, soc_max: None, soc_min: None }
     }
+
+    /// Remember the SOC limits from a fresh telemetry frame.
+    fn cache_soc(&mut self, t: &Telemetry) {
+        if let Some(v) = t.max_battery_percentage {
+            self.soc_max = Some(v.clamp(0, 100) as u8);
+        }
+        if let Some(v) = t.min_battery_percentage {
+            self.soc_min = Some(v.clamp(0, 100) as u8);
+        }
+    }
+
+    /// Dispatch a numeric/enum `Command::Set` to the matching crate setter.
+    async fn set_value(&mut self, id: &str, value: &str) -> Result<()> {
+        let num: f64 = value
+            .trim()
+            .parse()
+            .map_err(|_| Error::InvalidArgument(format!("'{value}' is not a number")))?;
+        let dev = &mut self.device;
+        let res = match id {
+            "soc_limit_max" => {
+                let max = num.round().clamp(0.0, 100.0) as u8;
+                let min = self.soc_min.ok_or_else(|| {
+                    Error::InvalidArgument("read status once before setting SOC limits".into())
+                })?;
+                self.soc_max = Some(max);
+                dev.set_soc_limits(max, min).await
+            }
+            "soc_limit_min" => {
+                let min = num.round().clamp(0.0, 100.0) as u8;
+                let max = self.soc_max.ok_or_else(|| {
+                    Error::InvalidArgument("read status once before setting SOC limits".into())
+                })?;
+                self.soc_min = Some(min);
+                dev.set_soc_limits(max, min).await
+            }
+            "ac_charge_power" => dev.set_ac_charge_power(num.round().max(0.0) as u16).await,
+            "ac_frequency" => {
+                let hz = num.round() as u8;
+                if hz != 50 && hz != 60 {
+                    return Err(Error::InvalidArgument("AC frequency must be 50 or 60".into()));
+                }
+                dev.set_ac_frequency(hz).await
+            }
+            "standby_timeout" => dev.set_standby_timeout(num.round().max(0.0) as u16).await,
+            "screen_timeout" => dev.set_screen_timeout(num.round().max(0.0) as u16).await,
+            "display_brightness" => dev.set_brightness(num.round().clamp(0.0, 3.0) as u8).await,
+            other => {
+                return Err(Error::InvalidArgument(format!(
+                    "'{other}' is not a settable value on this device"
+                )))
+            }
+        };
+        res.map_err(|e| Error::Transport(e.to_string()))
+    }
+}
+
+fn number(unit: Option<Unit>, min: f64, max: f64, step: f64) -> SettingKind {
+    SettingKind::Number { min: Some(min), max: Some(max), step: Some(step), unit }
+}
+
+fn num_setting(id: &str, label: &str, value: i64, kind: SettingKind) -> Setting {
+    Setting {
+        id: id.into(),
+        label: Some(label.into()),
+        value: SettingValue::Number(value as f64),
+        kind,
+        writable: true,
+    }
+}
+
+fn bool_setting(id: &str, label: &str, on: bool) -> Setting {
+    Setting {
+        id: id.into(),
+        label: Some(label.into()),
+        value: SettingValue::Bool(on),
+        kind: SettingKind::Bool,
+        writable: true,
+    }
+}
+
+/// Build the writable settings list from a telemetry frame (gen-2 only; gen-1
+/// leaves these `None`, so nothing is added).
+fn settings(t: &Telemetry) -> Vec<Setting> {
+    let mut out = Vec::new();
+    if let Some(v) = t.max_battery_percentage {
+        out.push(num_setting("soc_limit_max", "Charge limit", v,
+            number(Some(Unit::Percent), 0.0, 100.0, 1.0)));
+    }
+    if let Some(v) = t.min_battery_percentage {
+        out.push(num_setting("soc_limit_min", "Discharge limit", v,
+            number(Some(Unit::Percent), 0.0, 100.0, 1.0)));
+    }
+    if let Some(v) = t.ac_charge_power_w {
+        out.push(num_setting("ac_charge_power", "AC charge power", v,
+            number(Some(Unit::Watt), 100.0, 1300.0, 10.0)));
+    }
+    if let Some(v) = t.ac_frequency_hz {
+        out.push(Setting {
+            id: "ac_frequency".into(),
+            label: Some("AC frequency".into()),
+            value: SettingValue::Number(v as f64),
+            kind: SettingKind::Enum { options: vec!["50".into(), "60".into()] },
+            writable: true,
+        });
+    }
+    if let Some(v) = t.standby_timeout_min {
+        out.push(num_setting("standby_timeout", "Standby timeout", v,
+            number(Some(Unit::Minute), 0.0, 1440.0, 1.0)));
+    }
+    if let Some(v) = t.screen_timeout_min {
+        out.push(num_setting("screen_timeout", "Screen timeout", v,
+            number(Some(Unit::Minute), 0.0, 1440.0, 1.0)));
+    }
+    if let Some(v) = t.display_brightness {
+        out.push(num_setting("display_brightness", "Display brightness", v,
+            number(None, 0.0, 3.0, 1.0)));
+    }
+    if let Some(on) = t.smart_ac {
+        out.push(bool_setting("smart_ac", "Smart AC", on));
+    }
+    if let Some(on) = t.car_saving {
+        out.push(bool_setting("car_saving", "Car energy saving", on));
+    }
+    if let Some(on) = t.port_memory {
+        out.push(bool_setting("port_memory", "Port memory", on));
+    }
+    if let Some(on) = t.screensaver {
+        out.push(bool_setting("screensaver", "Clock screensaver", on));
+    }
+    out
 }
 
 fn port(id: &str, label: &str, p: &anker_solix::Port, settable: bool) -> PortInfo {
@@ -76,11 +213,12 @@ fn to_status(t: &Telemetry) -> BatteryStatus {
         .set(Reading::PowerOut, t.power_out.map(|v| v as f64))
         .set(Reading::SocLimitMax, t.max_battery_percentage.map(|v| v as f64))
         .set(Reading::SocLimitMin, t.min_battery_percentage.map(|v| v as f64))
-        .set(Reading::TimeRemainingH, t.time_remaining_hours.map(|v| v as f64));
+        .set(Reading::TimeRemainingH, t.time_remaining_hours);
     if let Some(c) = t.temperature_c {
         s.set_labeled("temp.battery", "Battery", c as f64, Unit::Celsius);
     }
     s.ports = ports;
+    s.settings = settings(t);
     s
 }
 
@@ -107,6 +245,7 @@ impl Battery for AnkerBattery {
         if self.info.serial.is_none() {
             self.info.serial = t.serial_number.clone();
         }
+        self.cache_soc(&t);
         Ok(to_status(&t))
     }
 
@@ -124,6 +263,10 @@ impl Battery for AnkerBattery {
                             .set_light(if on { Brightness::High } else { Brightness::Off })
                             .await
                     }
+                    "smart_ac" => self.device.set_smart_ac(on).await,
+                    "car_saving" => self.device.set_car_saving(on).await,
+                    "port_memory" => self.device.set_port_memory(on).await,
+                    "screensaver" => self.device.set_screensaver(on).await,
                     other => {
                         return Err(Error::InvalidArgument(format!(
                             "'{other}' is not controllable on this device"
@@ -140,7 +283,7 @@ impl Battery for AnkerBattery {
                     .await
                     .map_err(|e| Error::Transport(e.to_string()))
             }
-            Command::Set { .. } => Err(Error::Unsupported),
+            Command::Set { id, value } => self.set_value(&id, &value).await,
         }
     }
 
@@ -180,6 +323,7 @@ impl Battery for AnkerBattery {
                             if this.info.serial.is_none() {
                                 this.info.serial = t.serial_number.clone();
                             }
+                            this.cache_soc(&t);
                             let status = to_status(&t);
                             queue.extend(status.diff(prev.as_ref()));
                             prev = Some(status);
