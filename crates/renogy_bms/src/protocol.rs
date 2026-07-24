@@ -2,7 +2,7 @@
 //! (`BatteryClient`). Modbus function 0x03; offsets are into the verified
 //! response frame (`unit, func, byte_count, data…`), so data starts at byte 3.
 
-use crate::modbus::{be_i16, be_u16, be_u32};
+use modbus_lite::{be_i16, be_u16, be_u32};
 
 /// Default broadcast device id for a stand-alone battery. Hub/daisy-chained
 /// packs use 48/49/50 — override via [`crate::RenogyBms::connect_ble_as`].
@@ -81,7 +81,7 @@ pub fn parse_model(frame: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modbus::{build_read, crc16, verify};
+    use modbus_lite::{build_read, crc16, verify};
 
     fn frame(unit: u8, data: &[u8]) -> Vec<u8> {
         let mut f = vec![unit, 0x03, data.len() as u8];

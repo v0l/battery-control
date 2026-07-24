@@ -60,6 +60,8 @@ enum Locator {
     RenogyBle { id: String },
     #[cfg(feature = "daly")]
     DalySerial { port: String },
+    #[cfg(feature = "pace")]
+    PaceSerial { port: String, baud: u32, address: u8 },
     #[cfg(feature = "vedirect")]
     Vedirect { port: String },
     #[cfg(test)]
@@ -139,6 +141,11 @@ impl Discovered {
                 let b = crate::backends::DalyBattery::open_serial(port)?;
                 Ok(Box::new(b))
             }
+            #[cfg(feature = "pace")]
+            Locator::PaceSerial { port, baud, address } => {
+                let b = crate::backends::PaceBattery::open_serial(port, *baud, *address).await?;
+                Ok(Box::new(b))
+            }
             #[cfg(feature = "vedirect")]
             Locator::Vedirect { port } => {
                 let b = crate::backends::VedirectMonitor::open(port)?;
@@ -170,6 +177,7 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
         feature = "sok",
         feature = "renogy",
         feature = "daly",
+        feature = "pace",
         feature = "vedirect"
     ))]
     {
@@ -205,6 +213,7 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
         feature = "sok",
         feature = "renogy",
         feature = "daly",
+        feature = "pace",
         feature = "vedirect"
     )))]
     let _ = opts;
@@ -345,6 +354,7 @@ async fn scan_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
         feature = "jk-serial",
         feature = "jbd-serial",
         feature = "daly",
+        feature = "pace",
         feature = "vedirect"
     ))]
     if opts.probe_serial {
@@ -392,6 +402,7 @@ pub fn resolve<'a>(devices: &'a [Discovered], query: &str) -> Result<&'a Discove
     feature = "jk-serial",
     feature = "jbd-serial",
     feature = "daly",
+    feature = "pace",
     feature = "vedirect"
 ))]
 async fn probe_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
@@ -429,6 +440,7 @@ async fn probe_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
     feature = "jk-serial",
     feature = "jbd-serial",
     feature = "daly",
+    feature = "pace",
     feature = "vedirect"
 ))]
 fn looks_like_uart(name: &str) -> bool {
@@ -442,6 +454,7 @@ fn looks_like_uart(name: &str) -> bool {
     feature = "jk-serial",
     feature = "jbd-serial",
     feature = "daly",
+    feature = "pace",
     feature = "vedirect"
 ))]
 async fn probe_one_port(
@@ -521,6 +534,30 @@ async fn probe_one_port(
                 class: DeviceClass::Bms,
                 locator: Locator::DalySerial {
                     port: port.to_string(),
+                },
+            });
+        }
+    }
+
+    // PACE-BMS rack packs: Modbus RTU at 9600, bus address 1 for a stand-alone
+    // pack (multi-pack banks 1..N can be connected explicitly by address).
+    #[cfg(feature = "pace")]
+    {
+        let probe = async {
+            let mut b = crate::backends::PaceBattery::open_serial(port, 9600, 1).await.ok()?;
+            b.status().await.ok().map(|_| b)
+        };
+        if let Ok(Some(b)) = tokio::time::timeout(timeout, probe).await {
+            let label = b.info().model.clone().unwrap_or_else(|| "PACE BMS".to_string());
+            return Some(Discovered {
+                id: format!("serial:{port}"),
+                label,
+                backend: "pace",
+                class: DeviceClass::Bms,
+                locator: Locator::PaceSerial {
+                    port: port.to_string(),
+                    baud: 9600,
+                    address: 1,
                 },
             });
         }

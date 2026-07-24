@@ -1,0 +1,12 @@
+[package]
+name = "modbus_lite"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Tiny transport-agnostic Modbus-RTU helpers (function 0x03 reads, CRC-16/MODBUS)"
+license = "MIT"
+repository = "https://github.com/v0l/battery-control"
+keywords = ["modbus", "rtu", "rs485"]
+categories = ["embedded", "hardware-support"]
+
+[dependencies]

@@ -16,7 +16,6 @@
 
 pub mod bms;
 pub mod error;
-pub mod modbus;
 pub mod protocol;
 pub mod transport;
 

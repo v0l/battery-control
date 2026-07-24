@@ -1,7 +1,7 @@
 //! High-level Renogy device handle: connect and read a snapshot.
 
 use crate::error::{Error, Result};
-use crate::modbus;
+use modbus_lite as modbus;
 use crate::protocol::{self, RenogyData, DEFAULT_UNIT, SECTIONS};
 use crate::transport::Transport;
 
@@ -110,7 +110,7 @@ impl RenogyBms {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::modbus::crc16;
+    use modbus_lite::crc16;
     use async_trait::async_trait;
     use std::collections::VecDeque;
 

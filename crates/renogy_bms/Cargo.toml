@@ -10,6 +10,7 @@ keywords = ["bms", "battery", "renogy", "modbus", "bluetooth"]
 categories = ["hardware-support"]
 
 [dependencies]
+modbus_lite = { path = "../modbus_lite", version = "0.1" }
 thiserror = "2.0"
 log = "0.4"
 async-trait = "0.1"

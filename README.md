@@ -20,6 +20,7 @@ use.
 | `jbd` | [`jbd_bms`] JBD / Xiaoxiang / Overkill | cell BMS | serial + BLE | cells, temp, alarms | charge/discharge MOSFETs |
 | `sok` | [`sok_bms`] SOK / ABC-BMS | cell BMS | BLE (EE + Modbus) | cells, temps, SOC, capacity | — (read-only) |
 | `renogy` | [`renogy_bms`] Renogy smart battery | cell BMS | BLE (BT-1/BT-2) | cells, temps, SOC, capacity | — (read-only) |
+| `pace` | [`pace_bms`] PACE-BMS (many rack rebrands) | rack BMS | RS485 (Modbus) | cells, temps, SOC/SOH, capacity | — (read-only) |
 | `daly` | [`dalybms`] Daly BMS | cell BMS | serial (async) | SOC, MOSFET, capacity | MOSFETs, SOC |
 | `victron` | [`victron_ble`] Victron | monitor | BLE broadcast | SOC, V/I, temp, alarms | — (read-only) |
 | `vedirect` | [`vedirect`] Victron VE.Direct | monitor | serial (BMV/SmartShunt) | V/I, SOC, TTG | — (read-only) |
@@ -34,6 +35,7 @@ use.
 [`jbd_bms`]: ./crates/jbd_bms
 [`sok_bms`]: ./crates/sok_bms
 [`renogy_bms`]: ./crates/renogy_bms
+[`pace_bms`]: ./crates/pace_bms
 [`dalybms`]: https://crates.io/crates/dalybms
 [`victron_ble`]: https://crates.io/crates/victron_ble
 [`vedirect`]: https://crates.io/crates/vedirect

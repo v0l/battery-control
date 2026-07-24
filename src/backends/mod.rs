@@ -26,6 +26,11 @@ pub mod renogy;
 #[cfg(feature = "renogy")]
 pub use renogy::RenogyBattery;
 
+#[cfg(feature = "pace")]
+pub mod pace;
+#[cfg(feature = "pace")]
+pub use pace::PaceBattery;
+
 #[cfg(feature = "daly")]
 pub mod daly;
 #[cfg(feature = "daly")]
