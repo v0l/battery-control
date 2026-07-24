@@ -89,18 +89,23 @@ let status = s.to_status();
 
 ## Adding a backend
 
-1. Add the upstream crate as an `optional` dependency and a matching feature in
-   `Cargo.toml`.
-2. Create `src/backends/<name>.rs` with a newtype adapter implementing
-   [`Battery`]: map telemetry into `BatteryStatus`, advertise `Capabilities`,
-   translate `Command`s in `execute`.
-3. Re-export it from `src/backends/mod.rs` behind the feature.
+See **[docs/PORTING.md](docs/PORTING.md)** for the full process — it defines the
+canonical crate API + CLI shape (matching `jk_bms`/`anker_solix`), the workspace
+layout for ported protocol crates (`crates/<name>_bms`), transport/BLE
+conventions, the `Battery` wrapper, the field map, and a checklist.
 
-Blocking upstreams should be driven with `tokio::task::block_in_place` /
-`spawn_blocking`; async ones (like `jk_bms` 0.2) are awaited directly.
+The short version:
 
-**Candidates to add next:** JBD/Xiaoxiang (`ubmsc`), VE.Direct serial
-(`vedirect`), PACE-BMS and EG4-LL Modbus (native decoders, like Pylontech).
+1. Pick a reuse tier (A: existing crate · B: Modbus + register map · C: custom
+   protocol · D: crypto port) — see the [backend roadmap](https://github.com/v0l/battery-control/issues/11).
+2. For B–D, add a `crates/<name>_bms` workspace crate with `protocol.rs` /
+   `transport/` / `device.rs` / a `<name>tool` CLI — same surface as `jk_bms`.
+3. Add `src/backends/<name>.rs`: a newtype adapter implementing [`Battery`]
+   (map telemetry into `BatteryStatus`, advertise `Capabilities`, translate
+   `Command`s), re-export from `src/backends/mod.rs`, and wire discovery.
+
+Progress is tracked in the [backend roadmap](https://github.com/v0l/battery-control/issues/11)
+(JBD, SOK, Renogy, Seplos, PACE, Pylontech RS485, Victron, EcoFlow, Jackery, Bluetti).
 
 ## Home Assistant
 
