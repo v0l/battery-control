@@ -33,8 +33,8 @@ futures-util = { version = "0.3", optional = true }
 tokio-stream = { version = "0.1", optional = true }
 
 # --- backend crates (each feature-gated) ---
-anker_solix = { git = "https://github.com/v0l/anker-rs.git", rev = "b7b110946f8d860367f92a162b6e8f33c828248b", version = "0.4", optional = true }
-jk_bms = { version = "0.5", optional = true, default-features = false }
+anker_solix = { path = "crates/anker_solix", version = "0.4", optional = true }
+jk_bms = { path = "crates/jk_bms", version = "0.5", optional = true, default-features = false }
 jbd_bms = { path = "crates/jbd_bms", version = "0.1", optional = true, default-features = false }
 sok_bms = { path = "crates/sok_bms", version = "0.1", optional = true, default-features = false }
 renogy_bms = { path = "crates/renogy_bms", version = "0.1", optional = true, default-features = false }
