@@ -114,11 +114,17 @@ impl Discovered {
         match &self.locator {
             #[cfg(feature = "anker")]
             Locator::Anker { dev } => {
-                let device = dev
-                    .clone()
-                    .connect()
-                    .await
-                    .map_err(|e| Error::Transport(e.to_string()))?;
+                // Gen-2 uses the secure (GCM) channel — a superset that also
+                // carries telemetry + AC/DC, and is required for settings +
+                // the auth/binding flow. Gen-1 has only the basic channel.
+                let secure = matches!(dev.model, anker_solix::Model::C1000Gen2);
+                let dev = dev.clone();
+                let device = if secure {
+                    dev.connect_secure().await
+                } else {
+                    dev.connect().await
+                }
+                .map_err(|e| Error::Transport(e.to_string()))?;
                 Ok(Box::new(crate::backends::AnkerBattery::from_device(device)))
             }
             #[cfg(feature = "jk-serial")]

@@ -1,14 +1,23 @@
 //! Adapter for [`anker_solix`] — Anker SOLIX portable power stations over BLE.
 
+use crate::auth::{AuthInput, AuthState};
 use crate::battery::Battery;
 use crate::types::{
     BatteryStatus, Command, PortDirection, PortInfo, Reading, Setting, SettingKind, SettingValue,
     Unit,
 };
 use crate::{Capabilities, DeviceInfo, Error, Result};
-use anker_solix::{Brightness, Device, PortStatus as AnkerPort, Telemetry};
+use anker_solix::{Brightness, Device, Model, PortStatus as AnkerPort, Telemetry};
 use async_trait::async_trait;
 use std::time::Duration;
+
+/// Default bind userId (matches the crate's fixed client key; overridable with
+/// `ANKER_UID`). One bond per userId is permanent.
+fn default_uid() -> Vec<u8> {
+    std::env::var("ANKER_UID")
+        .unwrap_or_else(|_| "ankerrs".into())
+        .into_bytes()
+}
 
 /// A SOLIX power station exposed through the unified [`Battery`] trait.
 pub struct AnkerBattery {
@@ -18,6 +27,8 @@ pub struct AnkerBattery {
     /// that [`anker_solix::Device::set_soc_limits`] requires.
     soc_max: Option<u8>,
     soc_min: Option<u8>,
+    /// Whether the secure auth gate has passed this session.
+    authed: bool,
 }
 
 impl AnkerBattery {
@@ -31,7 +42,7 @@ impl AnkerBattery {
             model: Some(device.name().to_string()),
             ..Default::default()
         };
-        Ok(Self { device, info, soc_max: None, soc_min: None })
+        Ok(Self { device, info, soc_max: None, soc_min: None, authed: false })
     }
 
     /// Wrap an already-connected [`anker_solix::Device`].
@@ -41,7 +52,23 @@ impl AnkerBattery {
             model: Some(device.name().to_string()),
             ..Default::default()
         };
-        Self { device, info, soc_max: None, soc_min: None }
+        Self { device, info, soc_max: None, soc_min: None, authed: false }
+    }
+
+    /// Whether this is a gen-2 (secure-channel) device.
+    fn is_gen2(&self) -> bool {
+        matches!(self.device.model(), Model::C1000Gen2)
+    }
+
+    /// Credential key for this device's bind userId.
+    fn cred_key(&self) -> String {
+        let id = self.info.serial.as_deref().unwrap_or_else(|| self.info.model.as_deref().unwrap_or("anker"));
+        format!("anker:{id}")
+    }
+
+    /// The bind userId to use: a previously saved one, else the default.
+    fn uid(&self) -> Vec<u8> {
+        crate::credentials::load(&self.cred_key()).unwrap_or_else(default_uid)
     }
 
     /// Remember the SOC limits from a fresh telemetry frame.
@@ -54,30 +81,39 @@ impl AnkerBattery {
         }
     }
 
-    /// Ensure the secure (GCM) session is negotiated and authenticated before a
-    /// settings write. Gen-2 only; lazily upgraded so the basic telemetry / AC-DC
-    /// path is untouched until settings are actually used.
-    ///
-    /// The auth gate needs a user id; it defaults to guest (empty) but can be
-    /// overridden with `ANKER_UID` (matching the one-time on-device bond).
-    async fn ensure_secure(&mut self) -> Result<()> {
-        if self.device.is_secure() {
+    /// Ensure the secure auth gate has passed before a settings write. Tries the
+    /// saved/default userId (no button); if the device isn't bound this fails and
+    /// the caller must run [`Battery::authenticate`] (which drives the button
+    /// bond). The secure channel itself is already negotiated at connect (gen-2).
+    async fn ensure_authed(&mut self) -> Result<()> {
+        if self.authed {
             return Ok(());
         }
-        self.device
-            .negotiate_secure()
+        if !self.device.is_secure() {
+            return Err(Error::Backend(
+                "this Anker model has no secure channel for settings".into(),
+            ));
+        }
+        let uid = self.uid();
+        let (_s22, s27) = self
+            .device
+            .auth_gate(&uid)
             .await
-            .map_err(|e| Error::Transport(format!("secure negotiate failed: {e}")))?;
-        let uid = std::env::var("ANKER_UID").unwrap_or_default();
-        self.device
-            .authenticate(uid.as_bytes())
-            .await
-            .map_err(|e| Error::Transport(e.to_string()))
+            .map_err(|e| Error::Transport(e.to_string()))?;
+        if s27 == 0x00 {
+            crate::credentials::save(&self.cred_key(), &uid);
+            self.authed = true;
+            Ok(())
+        } else {
+            Err(Error::Backend(
+                "not bound — run authenticate() and press the power button".into(),
+            ))
+        }
     }
 
     /// Dispatch a numeric/enum `Command::Set` to the matching crate setter.
     async fn set_value(&mut self, id: &str, value: &str) -> Result<()> {
-        self.ensure_secure().await?;
+        self.ensure_authed().await?;
         let num: f64 = value
             .trim()
             .parse()
@@ -251,10 +287,58 @@ impl Battery for AnkerBattery {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::READ_BASIC
+        let mut caps = Capabilities::READ_BASIC
             | Capabilities::READ_PORTS
             | Capabilities::READ_TEMPERATURE
-            | Capabilities::WRITE_SETTINGS
+            | Capabilities::WRITE_SETTINGS;
+        // Gen-2 settings writes need the one-time secure bind.
+        if self.is_gen2() {
+            caps |= Capabilities::REQUIRES_AUTH;
+        }
+        caps
+    }
+
+    /// Drive the gen-2 bind/auth flow. First tries the auth gate with the
+    /// saved/default userId; if the device isn't bound, sends the `4023` bond
+    /// (which the device only accepts while the power button is held) and
+    /// retries. Returns [`AuthState::PendingApproval`] until the button is held.
+    async fn authenticate(&mut self, _input: AuthInput) -> Result<AuthState> {
+        if !self.is_gen2() || !self.device.is_secure() {
+            return Ok(AuthState::Authed); // nothing to bind
+        }
+        let uid = self.uid();
+        // Already bound?
+        let (_a, s27) = self
+            .device
+            .auth_gate(&uid)
+            .await
+            .map_err(|e| Error::Transport(e.to_string()))?;
+        if s27 == 0x00 {
+            crate::credentials::save(&self.cred_key(), &uid);
+            self.authed = true;
+            return Ok(AuthState::Authed);
+        }
+        // Not bound: attempt the bond (works only while the button is held), then
+        // re-check the auth gate.
+        let _ = self
+            .device
+            .bind_user_id(&uid)
+            .await
+            .map_err(|e| Error::Transport(e.to_string()))?;
+        let (_a2, s27b) = self
+            .device
+            .auth_gate(&uid)
+            .await
+            .map_err(|e| Error::Transport(e.to_string()))?;
+        if s27b == 0x00 {
+            crate::credentials::save(&self.cred_key(), &uid);
+            self.authed = true;
+            Ok(AuthState::Authed)
+        } else {
+            Ok(AuthState::approval(
+                "Press and hold the power button on your Anker for ~3s, then tap Retry.",
+            ))
+        }
     }
 
     async fn status(&mut self) -> Result<BatteryStatus> {
@@ -286,7 +370,7 @@ impl Battery for AnkerBattery {
                             .await
                     }
                     "smart_ac" | "car_saving" | "port_memory" | "screensaver" => {
-                        self.ensure_secure().await?;
+                        self.ensure_authed().await?;
                         match id.as_str() {
                             "smart_ac" => self.device.set_smart_ac(on).await,
                             "car_saving" => self.device.set_car_saving(on).await,

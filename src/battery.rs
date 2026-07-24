@@ -1,3 +1,4 @@
+use crate::auth::{AuthInput, AuthState};
 use crate::{BatteryStatus, Capabilities, Command, DeviceInfo, Error, Result, StatusUpdate};
 use async_trait::async_trait;
 use core::pin::Pin;
@@ -33,6 +34,21 @@ pub trait Battery: Send {
     async fn execute(&mut self, cmd: Command) -> Result<()> {
         let _ = cmd;
         Err(Error::Unsupported)
+    }
+
+    /// Drive the authentication / binding flow for devices that require pairing
+    /// (capability [`Capabilities::REQUIRES_AUTH`]).
+    ///
+    /// Call repeatedly until [`AuthState::Authed`]: pass [`AuthInput::None`] to
+    /// start (or to retry after the user has performed a physical approval), or
+    /// [`AuthInput::Pin`] when the previous step returned [`AuthState::PinCode`].
+    /// Backends persist any resulting credential (see [`crate::credentials`]) so
+    /// later connects return `Authed` immediately.
+    ///
+    /// The default is a no-op `Authed` for devices that need no auth.
+    async fn authenticate(&mut self, input: AuthInput) -> Result<AuthState> {
+        let _ = input;
+        Ok(AuthState::Authed)
     }
 
     /// A **real-time** stream of incremental [`StatusUpdate`]s, for backends

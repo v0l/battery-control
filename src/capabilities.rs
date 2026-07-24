@@ -32,6 +32,10 @@ bitflags! {
         const SET_CHARGE_LIMIT  = 1 << 20;
         /// Can write named settings.
         const WRITE_SETTINGS    = 1 << 21;
+        /// Requires an authentication / binding step (see
+        /// [`Battery::authenticate`](crate::Battery::authenticate)) before
+        /// control works.
+        const REQUIRES_AUTH     = 1 << 22;
     }
 }
 

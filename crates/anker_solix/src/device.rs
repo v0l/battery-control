@@ -480,6 +480,61 @@ impl Device {
         Ok(())
     }
 
+    /// Run the auth gate (`4022 getAesKey` + `4027 getAuthentication`) and return
+    /// the raw status bytes `(s4022, s4027)` without failing on rejection. A
+    /// value of `0x00` is success; `0x0e` (`needAuthentication`) means the client
+    /// isn't bound yet — run [`bind_user_id`](Self::bind_user_id) with the power
+    /// button held. Requires a negotiated secure session.
+    pub async fn auth_gate(&mut self, uid: &[u8]) -> Result<(u8, u8)> {
+        let ts = || {
+            (std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as u32)
+                .to_be_bytes()
+        };
+        let t = ts();
+        let p4022 = [
+            &[0xa1u8, 0x04][..], &t[..],
+            &[0xa2, uid.len() as u8][..], uid,
+            &[0xa3, 0x04, 0, 0, 0, 0][..],
+        ]
+        .concat();
+        let (_, r1) = self
+            .send_secure_neg_session([0x40, 0x22], &p4022, Duration::from_secs(4))
+            .await?;
+        let t = ts();
+        let p4027 = [&[0xa1u8, 0x04][..], &t[..], &[0xa2, uid.len() as u8][..], uid].concat();
+        let (_, r2) = self
+            .send_secure_neg_session([0x40, 0x27], &p4027, Duration::from_secs(4))
+            .await?;
+        Ok((r1.first().copied().unwrap_or(0xff), r2.first().copied().unwrap_or(0xff)))
+    }
+
+    /// Send the one-time `4023 bindUserId` bond for `uid`. The device only
+    /// accepts it while the **power button is held** (~180 s window), so send it
+    /// a few times. Returns the status byte (`0x00` = success). Requires a
+    /// negotiated secure session. After a successful bond, [`auth_gate`](Self::auth_gate)
+    /// succeeds on every reconnect (this crate uses a fixed client key).
+    pub async fn bind_user_id(&mut self, uid: &[u8]) -> Result<u8> {
+        let ts = (std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as u32)
+            .to_be_bytes();
+        // 4023 bindUserId: a1=timestamp a2=accountId(uid) a3=utf8(userId)(uid)
+        let payload = [
+            &[0xa1u8, 0x04][..], &ts[..],
+            &[0xa2, uid.len() as u8][..], uid,
+            &[0xa3, uid.len() as u8][..], uid,
+        ]
+        .concat();
+        let (_, r) = self
+            .send_secure_neg_session([0x40, 0x23], &payload, Duration::from_secs(3))
+            .await?;
+        Ok(r.first().copied().unwrap_or(0xff))
+    }
+
     /// Set the battery charge/discharge SoC limits (max / min %) on a gen-2
     /// station (C1000 Gen 2 verified). Requires a negotiated + authenticated
     /// secure session ([`Device::negotiate_secure`] then

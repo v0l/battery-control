@@ -34,11 +34,15 @@ mod capabilities;
 mod error;
 mod types;
 
+pub mod auth;
 pub mod backends;
+pub mod credentials;
 pub mod discovery;
 
+pub use auth::{AuthInput, AuthState};
 pub use battery::{Battery, StatusStream};
 pub use capabilities::Capabilities;
+pub use credentials::{CredentialStore, FileStore};
 pub use discovery::{discover, resolve, DeviceClass, Discovered, DiscoverOptions};
 pub use error::{Error, Result};
 pub use types::{
