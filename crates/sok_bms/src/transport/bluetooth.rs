@@ -7,6 +7,7 @@ use crate::data::{Identity, Variant};
 use crate::error::{Error, Result};
 use crate::transport::Transport;
 use async_trait::async_trait;
+use ble_util::uuid16;
 use btleplug::api::{
     Central, Characteristic, Manager as _, Peripheral as _, ScanFilter, ValueNotification,
     WriteType,
@@ -17,48 +18,12 @@ use std::pin::Pin;
 use std::time::Duration;
 use uuid::Uuid;
 
-const fn uuid16(x: u16) -> Uuid {
-    Uuid::from_u128(0x0000_0000_0000_1000_8000_0080_5f9b_34fb | ((x as u128) << 96))
-}
-
 const EE_SERVICE: Uuid = uuid16(0xffe0);
 const EE_NOTIFY: Uuid = uuid16(0xffe1);
 const EE_WRITE: Uuid = uuid16(0xffe2);
 const ABC_SERVICE: Uuid = uuid16(0xfff0);
 const ABC_NOTIFY: Uuid = uuid16(0xfff1);
 const ABC_WRITE: Uuid = uuid16(0xfff2);
-
-// Standard Device Information Service (0x180A) characteristics.
-const DIS_MANUFACTURER: Uuid = uuid16(0x2a29);
-const DIS_MODEL: Uuid = uuid16(0x2a24);
-const DIS_SERIAL: Uuid = uuid16(0x2a25);
-const DIS_FIRMWARE: Uuid = uuid16(0x2a26);
-const DIS_HARDWARE: Uuid = uuid16(0x2a27);
-
-/// Read the standard BLE Device Information Service strings, ignoring any that
-/// are missing or unreadable.
-async fn read_identity(p: &Peripheral, chars: &std::collections::BTreeSet<Characteristic>) -> Identity {
-    async fn s(
-        p: &Peripheral,
-        chars: &std::collections::BTreeSet<Characteristic>,
-        uuid: Uuid,
-    ) -> Option<String> {
-        let c = chars.iter().find(|c| c.uuid == uuid)?;
-        let bytes = p.read(c).await.ok()?;
-        let txt = String::from_utf8_lossy(&bytes)
-            .trim_matches(|c: char| c == '\0' || c.is_whitespace())
-            .to_string();
-        (!txt.is_empty()).then_some(txt)
-    }
-    Identity {
-        name: None,
-        manufacturer: s(p, chars, DIS_MANUFACTURER).await,
-        model: s(p, chars, DIS_MODEL).await,
-        serial: s(p, chars, DIS_SERIAL).await,
-        firmware: s(p, chars, DIS_FIRMWARE).await,
-        hardware: s(p, chars, DIS_HARDWARE).await,
-    }
-}
 
 /// A discovered BLE peripheral.
 #[derive(Debug, Clone)]
@@ -247,14 +212,7 @@ impl Transport for BluetoothTransport {
         let notify = chars.iter().find(|c| c.uuid == notify_uuid).cloned().unwrap();
         let write = chars.iter().find(|c| c.uuid == write_uuid).cloned().unwrap();
 
-        let mut identity = read_identity(&peripheral, &chars).await;
-        identity.name = peripheral
-            .properties()
-            .await
-            .ok()
-            .flatten()
-            .and_then(|p| p.local_name);
-        self.identity = identity;
+        self.identity = ble_util::read_identity(&peripheral).await;
 
         peripheral
             .subscribe(&notify)

@@ -1,0 +1,17 @@
+[package]
+name = "ble_util"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Shared BLE helpers for battery backends: 16-bit UUIDs + Device Information Service (0x180A) identity"
+license = "MIT"
+repository = "https://github.com/v0l/battery-control"
+
+[dependencies]
+uuid = "1"
+btleplug = { version = "0.12", optional = true }
+
+[features]
+default = []
+# Reading the DIS from a live peripheral needs the BLE stack.
+gatt = ["dep:btleplug"]

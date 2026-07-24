@@ -1,19 +1,6 @@
 //! Unified snapshot produced by both SOK protocol variants.
 
-/// Static device identity from the standard BLE Device Information Service
-/// (`0x180A`), read once at connect. Independent of the telemetry protocol.
-#[derive(Debug, Clone, Default)]
-pub struct Identity {
-    /// The advertised BLE name (the pack's best human label, e.g.
-    /// `"SOK-AA52810"`). Distinct from the DIS `model`, which is often just the
-    /// BLE module (e.g. `"BK-BLE-1.0"`).
-    pub name: Option<String>,
-    pub manufacturer: Option<String>,
-    pub model: Option<String>,
-    pub serial: Option<String>,
-    pub firmware: Option<String>,
-    pub hardware: Option<String>,
-}
+pub use ble_util::Identity;
 
 /// Which on-the-wire protocol a device speaks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
