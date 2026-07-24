@@ -16,6 +16,11 @@ pub mod jbd;
 #[cfg(any(feature = "jbd-ble", feature = "jbd-serial"))]
 pub use jbd::JbdBattery;
 
+#[cfg(feature = "sok")]
+pub mod sok;
+#[cfg(feature = "sok")]
+pub use sok::SokBattery;
+
 #[cfg(feature = "daly")]
 pub mod daly;
 #[cfg(feature = "daly")]

@@ -54,6 +54,8 @@ enum Locator {
     JbdSerial { port: String, baud: u32 },
     #[cfg(feature = "jbd-ble")]
     JbdBle { id: String },
+    #[cfg(feature = "sok")]
+    SokBle { id: String },
     #[cfg(feature = "daly")]
     DalySerial { port: String },
     #[cfg(feature = "vedirect")]
@@ -120,6 +122,11 @@ impl Discovered {
                 let b = crate::backends::JbdBattery::connect_bluetooth(id).await?;
                 Ok(Box::new(b))
             }
+            #[cfg(feature = "sok")]
+            Locator::SokBle { id } => {
+                let b = crate::backends::SokBattery::connect_bluetooth(id).await?;
+                Ok(Box::new(b))
+            }
             #[cfg(feature = "daly")]
             Locator::DalySerial { port } => {
                 let b = crate::backends::DalyBattery::open_serial(port)?;
@@ -153,17 +160,27 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
         feature = "jk-serial",
         feature = "jbd-ble",
         feature = "jbd-serial",
+        feature = "sok",
         feature = "daly",
         feature = "vedirect"
     ))]
     {
-        let (anker, jk, jbd, serial) = tokio::join!(
+        // SOK is scanned before JK: both advertise service ffe0, so listing SOK
+        // first lets it claim its packs (by name) before the id-dedup runs.
+        let (anker, sok, jk, jbd, serial) = tokio::join!(
             scan_anker(opts),
+            scan_sok_ble(opts),
             scan_jk_ble(opts),
             scan_jbd_ble(opts),
             scan_serial(opts)
         );
-        for d in anker.into_iter().chain(jk).chain(jbd).chain(serial) {
+        for d in anker
+            .into_iter()
+            .chain(sok)
+            .chain(jk)
+            .chain(jbd)
+            .chain(serial)
+        {
             if !found.iter().any(|x| x.id == d.id) {
                 found.push(d);
             }
@@ -175,6 +192,7 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
         feature = "jk-serial",
         feature = "jbd-ble",
         feature = "jbd-serial",
+        feature = "sok",
         feature = "daly",
         feature = "vedirect"
     )))]
@@ -255,6 +273,31 @@ async fn scan_jbd_ble(opts: &DiscoverOptions) -> Vec<Discovered> {
                     .collect();
             }
             Err(e) => log::warn!("JBD BLE scan failed: {e}"),
+        }
+    }
+    let _ = opts;
+    Vec::new()
+}
+
+/// SOK batteries advertising over BLE, filtered by the `SOK` name prefix (SOK
+/// shares service ffe0 with JK, so a service filter alone would collide).
+async fn scan_sok_ble(opts: &DiscoverOptions) -> Vec<Discovered> {
+    #[cfg(feature = "sok")]
+    {
+        match sok_bms::scan(opts.ble_secs).await {
+            Ok(devices) => {
+                return devices
+                    .into_iter()
+                    .map(|d| Discovered {
+                        id: format!("ble:{}", d.id),
+                        label: d.name.unwrap_or_else(|| "SOK".to_string()),
+                        backend: "sok",
+                        class: DeviceClass::Bms,
+                        locator: Locator::SokBle { id: d.id },
+                    })
+                    .collect();
+            }
+            Err(e) => log::warn!("SOK BLE scan failed: {e}"),
         }
     }
     let _ = opts;
