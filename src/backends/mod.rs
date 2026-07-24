@@ -56,6 +56,11 @@ pub mod vedirect;
 #[cfg(feature = "vedirect")]
 pub use vedirect::VedirectMonitor;
 
+#[cfg(feature = "pylontech-rs485")]
+pub mod pylontech_rs485;
+#[cfg(feature = "pylontech-rs485")]
+pub use pylontech_rs485::PylontechConsole;
+
 #[cfg(feature = "pylontech-can")]
 pub mod pylontech;
 #[cfg(feature = "pylontech-can")]

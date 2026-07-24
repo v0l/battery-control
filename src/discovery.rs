@@ -66,6 +66,8 @@ enum Locator {
     PaceSerial { port: String, baud: u32, address: u8 },
     #[cfg(feature = "seplos")]
     SeplosSerial { port: String, baud: u32, address: u8 },
+    #[cfg(feature = "pylontech-rs485")]
+    PylontechConsole { port: String, baud: u32, address: u8 },
     #[cfg(feature = "vedirect")]
     Vedirect { port: String },
     #[cfg(test)]
@@ -160,6 +162,11 @@ impl Discovered {
                 let b = crate::backends::SeplosBattery::open_serial(port, *baud, *address).await?;
                 Ok(Box::new(b))
             }
+            #[cfg(feature = "pylontech-rs485")]
+            Locator::PylontechConsole { port, baud, address } => {
+                let b = crate::backends::PylontechConsole::open_serial(port, *baud, *address).await?;
+                Ok(Box::new(b))
+            }
             #[cfg(feature = "vedirect")]
             Locator::Vedirect { port } => {
                 let b = crate::backends::VedirectMonitor::open(port)?;
@@ -194,7 +201,8 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
         feature = "daly",
         feature = "pace",
         feature = "seplos",
-        feature = "vedirect"
+        feature = "vedirect",
+        feature = "pylontech-rs485"
     ))]
     {
         // SOK is scanned before JK: both advertise service ffe0, so listing SOK
@@ -234,7 +242,8 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
         feature = "daly",
         feature = "pace",
         feature = "seplos",
-        feature = "vedirect"
+        feature = "vedirect",
+        feature = "pylontech-rs485"
     )))]
     let _ = opts;
 
@@ -401,7 +410,8 @@ async fn scan_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
         feature = "daly",
         feature = "pace",
         feature = "seplos",
-        feature = "vedirect"
+        feature = "vedirect",
+        feature = "pylontech-rs485"
     ))]
     if opts.probe_serial {
         return probe_serial(opts).await;
@@ -450,7 +460,8 @@ pub fn resolve<'a>(devices: &'a [Discovered], query: &str) -> Result<&'a Discove
     feature = "daly",
     feature = "pace",
     feature = "seplos",
-    feature = "vedirect"
+    feature = "vedirect",
+    feature = "pylontech-rs485"
 ))]
 async fn probe_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
     use std::time::Duration;
@@ -489,7 +500,8 @@ async fn probe_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
     feature = "daly",
     feature = "pace",
     feature = "seplos",
-    feature = "vedirect"
+    feature = "vedirect",
+    feature = "pylontech-rs485"
 ))]
 fn looks_like_uart(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
@@ -504,7 +516,8 @@ fn looks_like_uart(name: &str) -> bool {
     feature = "daly",
     feature = "pace",
     feature = "seplos",
-    feature = "vedirect"
+    feature = "vedirect",
+    feature = "pylontech-rs485"
 ))]
 async fn probe_one_port(
     port: &str,
@@ -583,6 +596,30 @@ async fn probe_one_port(
                 class: DeviceClass::Bms,
                 locator: Locator::DalySerial {
                     port: port.to_string(),
+                },
+            });
+        }
+    }
+
+    // Pylontech RS485 console (US2000/US3000): ASCII `~…\r` frames at 115200,
+    // answers on address 2.
+    #[cfg(feature = "pylontech-rs485")]
+    {
+        let probe = async {
+            let mut b = crate::backends::PylontechConsole::open_serial(port, 115200, 2).await.ok()?;
+            b.status().await.ok().map(|_| b)
+        };
+        if let Ok(Some(b)) = tokio::time::timeout(timeout, probe).await {
+            let label = b.info().model.clone().unwrap_or_else(|| "Pylontech".to_string());
+            return Some(Discovered {
+                id: format!("serial:{port}"),
+                label,
+                backend: "pylontech-rs485",
+                class: DeviceClass::Bms,
+                locator: Locator::PylontechConsole {
+                    port: port.to_string(),
+                    baud: 115200,
+                    address: 2,
                 },
             });
         }

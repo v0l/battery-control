@@ -27,6 +27,7 @@ use.
 | `victron` | [`victron_ble`] Victron | monitor | BLE broadcast | SOC, V/I, temp, alarms | — (read-only) |
 | `vedirect` | [`vedirect`] Victron VE.Direct | monitor | serial (BMV/SmartShunt) | V/I, SOC, TTG | — (read-only) |
 | `pylontech-can` *(default)* | native Pylontech CAN | rack (EG4/SOK/…) | CAN frames | SOC, V/I/T, limits, alarms | — (read-only) |
+| `pylontech-rs485` | [`pylontech_rs485`] Pylontech console | rack (US2000/US3000) | RS485 (ASCII) | per-cell/module, SOC, temps | — (read-only) |
 | `can-socket` | Pylontech CAN via SocketCAN | rack | Linux CAN | as above | — |
 
 `full` enables every host-buildable backend (everything except the Linux-only
@@ -40,6 +41,7 @@ use.
 [`pace_bms`]: ./crates/pace_bms
 [`seplos_bms`]: ./crates/seplos_bms
 [`bluetti`]: ./crates/bluetti
+[`pylontech_rs485`]: ./crates/pylontech_rs485
 [`dalybms`]: https://crates.io/crates/dalybms
 [`victron_ble`]: https://crates.io/crates/victron_ble
 [`vedirect`]: https://crates.io/crates/vedirect
