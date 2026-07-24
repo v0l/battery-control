@@ -154,7 +154,17 @@ impl AnkerBattery {
                 )))
             }
         };
+        self.settle_after_write().await;
         res.map_err(|e| Error::Transport(e.to_string()))
+    }
+
+    /// After a secure settings write the C1000 briefly pauses and can drop its
+    /// telemetry subscription, which starves the next write's ack and the live
+    /// stream. Give it a moment to settle, then re-subscribe so telemetry (and
+    /// subsequent writes) keep flowing.
+    async fn settle_after_write(&mut self) {
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        let _ = self.device.subscribe().await;
     }
 }
 
@@ -378,12 +388,14 @@ impl Battery for AnkerBattery {
                     }
                     "smart_ac" | "car_saving" | "port_memory" | "screensaver" => {
                         self.ensure_authed().await?;
-                        match id.as_str() {
+                        let r = match id.as_str() {
                             "smart_ac" => self.device.set_smart_ac(on).await,
                             "car_saving" => self.device.set_car_saving(on).await,
                             "port_memory" => self.device.set_port_memory(on).await,
                             _ => self.device.set_screensaver(on).await,
-                        }
+                        };
+                        self.settle_after_write().await;
+                        r
                     }
                     other => {
                         return Err(Error::InvalidArgument(format!(
