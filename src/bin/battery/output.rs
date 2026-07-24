@@ -24,8 +24,11 @@ pub fn print_status(info: &DeviceInfo, s: &BatteryStatus, json: bool) {
         let mut v = serde_json::to_value(s).unwrap_or(serde_json::Value::Null);
         if let Some(o) = v.as_object_mut() {
             o.insert("backend".into(), serde_json::json!(info.backend));
+            o.insert("manufacturer".into(), serde_json::json!(info.manufacturer));
             o.insert("model".into(), serde_json::json!(info.model));
             o.insert("serial".into(), serde_json::json!(info.serial));
+            o.insert("firmware".into(), serde_json::json!(info.firmware));
+            o.insert("hardware".into(), serde_json::json!(info.hardware));
         }
         println!("{}", serde_json::to_string(&v).unwrap());
         return;
@@ -115,8 +118,18 @@ fn render_text(info: &DeviceInfo, s: &BatteryStatus) -> String {
     if !s.alarms.is_empty() {
         row(&mut o, "Alarms:", s.alarms.join(", "));
     }
-    if let Some(sn) = &info.serial {
-        row(&mut o, "Serial:", sn.clone());
+    // Static device identity (BLE Device Information Service, when available).
+    if let Some(v) = &info.manufacturer {
+        row(&mut o, "Manufacturer:", v.clone());
+    }
+    if let Some(v) = &info.serial {
+        row(&mut o, "Serial:", v.clone());
+    }
+    if let Some(v) = &info.firmware {
+        row(&mut o, "Firmware:", v.clone());
+    }
+    if let Some(v) = &info.hardware {
+        row(&mut o, "Hardware:", v.clone());
     }
     o
 }

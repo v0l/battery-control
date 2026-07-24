@@ -2,7 +2,7 @@
 //! the `0xEE` command generation and the ABC-BMS Modbus generation, dispatching
 //! on the variant the transport detected at connect time.
 
-use crate::data::{SokData, Variant};
+use crate::data::{Identity, SokData, Variant};
 use crate::error::{Error, Result};
 use crate::transport::Transport;
 use crate::{abc, ee};
@@ -16,6 +16,7 @@ fn hex(bytes: &[u8]) -> String {
 pub struct SokBms {
     transport: Box<dyn Transport>,
     variant: Variant,
+    identity: Identity,
     frames: HashMap<u16, Vec<u8>>, // EE: collected response frames by header
     data: SokData,
 }
@@ -25,12 +26,20 @@ impl SokBms {
     pub async fn with_transport(mut transport: Box<dyn Transport>) -> Result<Self> {
         transport.open().await?;
         let variant = transport.variant();
+        let identity = transport.identity();
         Ok(Self {
             transport,
             variant,
+            identity,
             frames: HashMap::new(),
             data: SokData::default(),
         })
+    }
+
+    /// Static device identity from the BLE Device Information Service, read at
+    /// connect. Empty fields where the device doesn't expose the service.
+    pub fn identity(&self) -> &Identity {
+        &self.identity
     }
 
     /// Connect over BLE to the peripheral id from [`crate::scan`].

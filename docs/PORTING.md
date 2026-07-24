@@ -220,6 +220,15 @@ impl Battery for <Name>Battery {
 - **Push devices** set `has_stream()==true` and implement `stream()` with the
   `futures_util::stream::unfold` + `BatteryStatus::diff` pattern (copy `jk.rs`).
 
+### Device identity (BLE)
+
+BLE backends should read the standard **Device Information Service** (`0x180A`)
+at connect and populate `DeviceInfo` (`manufacturer` `0x2A29`, `model` `0x2A24`,
+`serial` `0x2A25`, `firmware` `0x2A26`, `hardware` `0x2A27`) — see `sok_bms`'s
+`read_identity`. Prefer the **advertised BLE name** (or a protocol-reported
+model) for `DeviceInfo.model`: the DIS `model` is frequently just the BLE module
+(e.g. `BK-BLE-1.0`), while the advertised name is the pack (e.g. `SOK-AA52810`).
+
 ### Feature flags (mirror JK)
 ```toml
 # battery_control/Cargo.toml

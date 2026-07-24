@@ -3,7 +3,7 @@
 //! - **EE** (`0xEE` commands): service `FFE0`, notify `FFE1`, write `FFE2`.
 //! - **ABC** (Modbus): service `FFF0`, notify `FFF1`, write `FFF2`.
 
-use crate::data::Variant;
+use crate::data::{Identity, Variant};
 use crate::error::{Error, Result};
 use crate::transport::Transport;
 use async_trait::async_trait;
@@ -27,6 +27,38 @@ const EE_WRITE: Uuid = uuid16(0xffe2);
 const ABC_SERVICE: Uuid = uuid16(0xfff0);
 const ABC_NOTIFY: Uuid = uuid16(0xfff1);
 const ABC_WRITE: Uuid = uuid16(0xfff2);
+
+// Standard Device Information Service (0x180A) characteristics.
+const DIS_MANUFACTURER: Uuid = uuid16(0x2a29);
+const DIS_MODEL: Uuid = uuid16(0x2a24);
+const DIS_SERIAL: Uuid = uuid16(0x2a25);
+const DIS_FIRMWARE: Uuid = uuid16(0x2a26);
+const DIS_HARDWARE: Uuid = uuid16(0x2a27);
+
+/// Read the standard BLE Device Information Service strings, ignoring any that
+/// are missing or unreadable.
+async fn read_identity(p: &Peripheral, chars: &std::collections::BTreeSet<Characteristic>) -> Identity {
+    async fn s(
+        p: &Peripheral,
+        chars: &std::collections::BTreeSet<Characteristic>,
+        uuid: Uuid,
+    ) -> Option<String> {
+        let c = chars.iter().find(|c| c.uuid == uuid)?;
+        let bytes = p.read(c).await.ok()?;
+        let txt = String::from_utf8_lossy(&bytes)
+            .trim_matches(|c: char| c == '\0' || c.is_whitespace())
+            .to_string();
+        (!txt.is_empty()).then_some(txt)
+    }
+    Identity {
+        name: None,
+        manufacturer: s(p, chars, DIS_MANUFACTURER).await,
+        model: s(p, chars, DIS_MODEL).await,
+        serial: s(p, chars, DIS_SERIAL).await,
+        firmware: s(p, chars, DIS_FIRMWARE).await,
+        hardware: s(p, chars, DIS_HARDWARE).await,
+    }
+}
 
 /// A discovered BLE peripheral.
 #[derive(Debug, Clone)]
@@ -149,6 +181,7 @@ pub struct BluetoothTransport {
     write: Option<Characteristic>,
     notifications: Option<NotificationStream>,
     variant: Variant,
+    identity: Identity,
 }
 
 impl BluetoothTransport {
@@ -159,6 +192,7 @@ impl BluetoothTransport {
             write: None,
             notifications: None,
             variant: Variant::Abc, // provisional; set for real in `open`
+            identity: Identity::default(),
         }
     }
 }
@@ -213,6 +247,15 @@ impl Transport for BluetoothTransport {
         let notify = chars.iter().find(|c| c.uuid == notify_uuid).cloned().unwrap();
         let write = chars.iter().find(|c| c.uuid == write_uuid).cloned().unwrap();
 
+        let mut identity = read_identity(&peripheral, &chars).await;
+        identity.name = peripheral
+            .properties()
+            .await
+            .ok()
+            .flatten()
+            .and_then(|p| p.local_name);
+        self.identity = identity;
+
         peripheral
             .subscribe(&notify)
             .await
@@ -257,5 +300,9 @@ impl Transport for BluetoothTransport {
 
     fn variant(&self) -> Variant {
         self.variant
+    }
+
+    fn identity(&self) -> Identity {
+        self.identity.clone()
     }
 }

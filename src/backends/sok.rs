@@ -28,11 +28,31 @@ impl SokBattery {
     }
 
     fn refresh_info(&mut self, d: &SokData) {
+        // Prefer the standard BLE Device Information Service (read at connect),
+        // falling back to any identity the telemetry protocol carries.
+        let id = self.bms.identity();
+        if self.info.manufacturer.is_none() {
+            self.info.manufacturer = id.manufacturer.clone();
+        }
         if self.info.model.is_none() {
-            self.info.model = Some(d.model.clone().unwrap_or_else(|| "SOK".into()));
+            // The pack's advertised name (SOK-AA52810) or protocol model is a
+            // better label than the DIS model, which is often just the BLE
+            // module (e.g. BK-BLE-1.0).
+            self.info.model = d
+                .model
+                .clone()
+                .or_else(|| id.name.clone())
+                .or_else(|| id.model.clone())
+                .or_else(|| Some("SOK".into()));
         }
         if self.info.serial.is_none() {
-            self.info.serial = d.serial.clone();
+            self.info.serial = id.serial.clone().or_else(|| d.serial.clone());
+        }
+        if self.info.firmware.is_none() {
+            self.info.firmware = id.firmware.clone();
+        }
+        if self.info.hardware.is_none() {
+            self.info.hardware = id.hardware.clone();
         }
     }
 

@@ -28,10 +28,17 @@ pub const TEMP_PREFIX: &str = "temp.";
 pub struct DeviceInfo {
     /// Backend/protocol name, e.g. `"anker"`, `"jk"`, `"pylontech-can"`.
     pub backend: String,
-    /// Human model string if known, e.g. `"SOLIX C1000 Gen 2"`.
+    /// Manufacturer / brand, e.g. `"SOK"`, `"Renogy"` (BLE DIS `0x2A29`).
+    pub manufacturer: Option<String>,
+    /// Human model/product string if known, e.g. `"SOLIX C1000 Gen 2"`
+    /// (BLE DIS model number `0x2A24`).
     pub model: Option<String>,
+    /// Serial number (BLE DIS `0x2A25`).
     pub serial: Option<String>,
+    /// Firmware revision (BLE DIS `0x2A26`).
     pub firmware: Option<String>,
+    /// Hardware revision (BLE DIS `0x2A27`).
+    pub hardware: Option<String>,
 }
 
 /// The **standard**, cross-backend reading ids as a typed enum, so code passes

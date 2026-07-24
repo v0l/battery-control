@@ -28,7 +28,7 @@ pub mod error;
 pub mod transport;
 
 pub use bms::SokBms;
-pub use data::{SokData, Variant};
+pub use data::{Identity, SokData, Variant};
 pub use error::{Error, Result};
 
 #[cfg(feature = "bluetooth")]
