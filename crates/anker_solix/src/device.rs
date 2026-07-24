@@ -436,6 +436,62 @@ impl Device {
         self.secure_key.is_some()
     }
 
+    /// Pass the gen-2 **auth gate** (`4022 getAesKey` + `4027 getAuthentication`)
+    /// required before the device applies settings writes. Account/timestamp
+    /// based; `uid` is the userId (guest terminalId works — pass `b""` or a
+    /// stable id that matches the one-time `4023` button bond).
+    ///
+    /// Call after [`Device::negotiate_secure`]. Returns Ok once both frames are
+    /// ACKed `00` (success).
+    pub async fn authenticate(&mut self, uid: &[u8]) -> Result<()> {
+        let ts = || {
+            (std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as u32)
+                .to_be_bytes()
+        };
+        // 4022 getAesKey: a1=timestamp a2=userId a3=timeStampDifference(0)
+        let t = ts();
+        let p4022 = [
+            &[0xa1u8, 0x04][..], &t[..],
+            &[0xa2, uid.len() as u8][..], uid,
+            &[0xa3, 0x04, 0, 0, 0, 0][..],
+        ]
+        .concat();
+        let (_, r1) = self
+            .send_secure_neg_session([0x40, 0x22], &p4022, Duration::from_secs(4))
+            .await?;
+        // 4027 getAuthentication: a1=timestamp a2=userId
+        let t = ts();
+        let p4027 = [&[0xa1u8, 0x04][..], &t[..], &[0xa2, uid.len() as u8][..], uid].concat();
+        let (_, r2) = self
+            .send_secure_neg_session([0x40, 0x27], &p4027, Duration::from_secs(4))
+            .await?;
+        if r1.first() != Some(&0) || r2.first() != Some(&0) {
+            return Err(AnkerError::Crypto(format!(
+                "auth gate rejected (4022={:02x?} 4027={:02x?}); run the one-time 4023 button bond",
+                r1.first(), r2.first()
+            )));
+        }
+        Ok(())
+    }
+
+    /// Set the battery charge/discharge SoC limits (max / min %) on a gen-2
+    /// station (C1000 Gen 2 verified). Requires a negotiated + authenticated
+    /// secure session ([`Device::negotiate_secure`] then
+    /// [`Device::authenticate`]).
+    ///
+    /// Wire: opcode `4103`, `a1 01 21 <field-id> 02 01 <value>` — field-id
+    /// `0xaa` = charge/max, `0xab` = discharge/min (recovered by RE).
+    pub async fn set_soc_limits(&mut self, max: u8, min: u8) -> Result<()> {
+        let charge = [0xa1u8, 0x01, 0x21, 0xaa, 0x02, 0x01, max];
+        let discharge = [0xa1u8, 0x01, 0x21, 0xab, 0x02, 0x01, min];
+        self.send_secure_recv([0x41, 0x03], &charge, Duration::from_secs(4)).await?;
+        self.send_secure_recv([0x41, 0x03], &discharge, Duration::from_secs(4)).await?;
+        Ok(())
+    }
+
     /// Send a **session-key GCM** frame on the *negotiation* channel (pattern
     /// `030001`) and return the device's decrypted `(cmd, plaintext)` response.
     ///

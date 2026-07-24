@@ -145,6 +145,11 @@ impl KeyPair {
     pub fn generate() -> Self {
         let mut rng = rand::thread_rng();
         let private = rng.gen_biguint_range(&BigUint::one(), &n());
+        Self::from_private(private)
+    }
+
+    /// Build a key pair from a fixed private scalar (`public = private·G`).
+    pub fn from_private(private: BigUint) -> Self {
         let public = Point::generator().mul(&private);
         Self { private, public }
     }
@@ -201,5 +206,64 @@ mod tests {
     fn order_kills_generator() {
         // n · G == identity
         assert_eq!(Point::generator().mul(&n()), Point::identity());
+    }
+
+    fn hb(s: &str) -> Vec<u8> {
+        (0..s.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
+            .collect()
+    }
+
+    /// Known-answer: scalar multiples `k·G` from an independent reference
+    /// (python-ecdsa SECP160r1). Validates point add + double + double-and-add.
+    #[test]
+    fn scalar_multiples_kat() {
+        // (k, x, y)
+        let vectors: &[(u64, &str, &str)] = &[
+            (2, "02f997f33c5ed04c55d3edf8675d3e92e8f46686", "f083a323482993e9440e817e21cfb7737df8797b"),
+            (3, "7b76ff541ef363f2df13de1650bd48daa958bc59", "c915ca790d8c8877b55be0079d12854ffe9f6f5a"),
+            (4, "b4041d8683be99f0afe01c307b1ad4c100cf2a88", "3f32caed841f08c00660cc74caf4a5bcf9beed08"),
+            (5, "e705b180e41192ed772d1e2d424c171303ad6c4e", "933fbe35078c8c01465dbf40a12b583364b2a59c"),
+            (7, "7a7f99d56472f619577c4e8c9b3a35e961472188", "8955c17a4aa7b3ca673c6d55ee00fae62552e356"),
+            (255, "37185ec8fa9a39b4f72f11a2d0644ea39c217a00", "10ca9e4678fc07a8dec5ee6ca41a820887c9bfa9"),
+            (65537, "63885dd8a634285d1a4bef41f070444cb8aff6d1", "cb0cfa766214439f8965d85a4b135bfb99751cdd"),
+        ];
+        for &(k, x, y) in vectors {
+            let p = Point::generator().mul(&BigUint::from(k));
+            let (px, py) = p.0.expect("finite point");
+            assert_eq!(to_field_bytes(&px), hb(x)[..], "x mismatch for k={k}");
+            assert_eq!(to_field_bytes(&py), hb(y)[..], "y mismatch for k={k}");
+        }
+    }
+
+    // GEC 2 "Test Vectors for SEC 1" secp160r1 ECDH example, as embedded in
+    // Nordic's nRF5 SDK (independent of python-ecdsa).
+    const DU: &str = "aa374ffc3ce144e6b073307972cb6d57b2a4e982";
+    const DV: &str = "45fb58a92a17ad4b15101c66e74f277e2b460866";
+    const QU_X: &str = "51b4496fecc406ed0e75a24a3c03206251419dc0";
+    const QU_Y: &str = "c28dcb4b73a514b468d793894f381ccc1756aa6c";
+    const QV_X: &str = "49b41e0e9c0369c2328739d90f63d56707c6e5bc";
+    const QV_Y: &str = "26e008b567015ed96d232a03111c3edc0e9c8f83";
+    const Z: &str = "ca7c0f8c3ffa87a96e1b74ac8e6af594347bb40a";
+
+    /// Known-answer: private keys derive the reference public points.
+    #[test]
+    fn gec2_pubkey_kat() {
+        let u = KeyPair::from_private(hex(DU));
+        assert_eq!(u.public_bytes()[..], [hb(QU_X), hb(QU_Y)].concat()[..]);
+        let v = KeyPair::from_private(hex(DV));
+        assert_eq!(v.public_bytes()[..], [hb(QV_X), hb(QV_Y)].concat()[..]);
+    }
+
+    /// Known-answer: the ECDH shared secret matches GEC 2, both directions.
+    #[test]
+    fn gec2_ecdh_kat() {
+        let u = KeyPair::from_private(hex(DU));
+        let v = KeyPair::from_private(hex(DV));
+        let qv = [hb(QV_X), hb(QV_Y)].concat();
+        let qu = [hb(QU_X), hb(QU_Y)].concat();
+        assert_eq!(u.shared_secret(&qv).unwrap()[..], hb(Z)[..]);
+        assert_eq!(v.shared_secret(&qu).unwrap()[..], hb(Z)[..]);
     }
 }
