@@ -58,6 +58,8 @@ enum Locator {
     SokBle { id: String },
     #[cfg(feature = "renogy")]
     RenogyBle { id: String },
+    #[cfg(feature = "bluetti")]
+    BluettiBle { id: String },
     #[cfg(feature = "daly")]
     DalySerial { port: String },
     #[cfg(feature = "pace")]
@@ -138,6 +140,11 @@ impl Discovered {
                 let b = crate::backends::RenogyBattery::connect_bluetooth(id).await?;
                 Ok(Box::new(b))
             }
+            #[cfg(feature = "bluetti")]
+            Locator::BluettiBle { id } => {
+                let b = crate::backends::BluettiStation::connect_bluetooth(id).await?;
+                Ok(Box::new(b))
+            }
             #[cfg(feature = "daly")]
             Locator::DalySerial { port } => {
                 let b = crate::backends::DalyBattery::open_serial(port)?;
@@ -183,6 +190,7 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
         feature = "jbd-serial",
         feature = "sok",
         feature = "renogy",
+        feature = "bluetti",
         feature = "daly",
         feature = "pace",
         feature = "seplos",
@@ -191,10 +199,11 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
     {
         // SOK is scanned before JK: both advertise service ffe0, so listing SOK
         // first lets it claim its packs (by name) before the id-dedup runs.
-        let (anker, sok, renogy, jk, jbd, serial) = tokio::join!(
+        let (anker, sok, renogy, bluetti, jk, jbd, serial) = tokio::join!(
             scan_anker(opts),
             scan_sok_ble(opts),
             scan_renogy_ble(opts),
+            scan_bluetti_ble(opts),
             scan_jk_ble(opts),
             scan_jbd_ble(opts),
             scan_serial(opts)
@@ -203,6 +212,7 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
             .into_iter()
             .chain(sok)
             .chain(renogy)
+            .chain(bluetti)
             .chain(jk)
             .chain(jbd)
             .chain(serial)
@@ -220,6 +230,7 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
         feature = "jbd-serial",
         feature = "sok",
         feature = "renogy",
+        feature = "bluetti",
         feature = "daly",
         feature = "pace",
         feature = "seplos",
@@ -352,6 +363,31 @@ async fn scan_renogy_ble(opts: &DiscoverOptions) -> Vec<Discovered> {
                     .collect();
             }
             Err(e) => log::warn!("Renogy BLE scan failed: {e}"),
+        }
+    }
+    let _ = opts;
+    Vec::new()
+}
+
+/// Bluetti power stations advertising over BLE (local only), filtered by the
+/// `AC`/`EB`/`EP` model name prefix.
+async fn scan_bluetti_ble(opts: &DiscoverOptions) -> Vec<Discovered> {
+    #[cfg(feature = "bluetti")]
+    {
+        match bluetti::scan(opts.ble_secs).await {
+            Ok(devices) => {
+                return devices
+                    .into_iter()
+                    .map(|d| Discovered {
+                        id: format!("ble:{}", d.id),
+                        label: d.name.unwrap_or_else(|| "Bluetti".to_string()),
+                        backend: "bluetti",
+                        class: DeviceClass::PowerStation,
+                        locator: Locator::BluettiBle { id: d.id },
+                    })
+                    .collect();
+            }
+            Err(e) => log::warn!("Bluetti BLE scan failed: {e}"),
         }
     }
     let _ = opts;

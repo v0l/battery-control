@@ -22,6 +22,7 @@ use.
 | `renogy` | [`renogy_bms`] Renogy smart battery | cell BMS | BLE (BT-1/BT-2) | cells, temps, SOC, capacity | — (read-only) |
 | `pace` | [`pace_bms`] PACE-BMS (many rack rebrands) | rack BMS | RS485 (Modbus) | cells, temps, SOC/SOH, capacity | — (read-only) |
 | `seplos` | [`seplos_bms`] Seplos V3 | rack BMS | RS485 (Modbus) | 16 cells, temps, SOC/SOH, capacity | — (read-only) |
+| `bluetti` | [`bluetti`] Bluetti (AC/EB/EP) | power station | BLE (local, Modbus) | SOC, in/out power, ports, cells | AC/DC output |
 | `daly` | [`dalybms`] Daly BMS | cell BMS | serial (async) | SOC, MOSFET, capacity | MOSFETs, SOC |
 | `victron` | [`victron_ble`] Victron | monitor | BLE broadcast | SOC, V/I, temp, alarms | — (read-only) |
 | `vedirect` | [`vedirect`] Victron VE.Direct | monitor | serial (BMV/SmartShunt) | V/I, SOC, TTG | — (read-only) |
@@ -38,6 +39,7 @@ use.
 [`renogy_bms`]: ./crates/renogy_bms
 [`pace_bms`]: ./crates/pace_bms
 [`seplos_bms`]: ./crates/seplos_bms
+[`bluetti`]: ./crates/bluetti
 [`dalybms`]: https://crates.io/crates/dalybms
 [`victron_ble`]: https://crates.io/crates/victron_ble
 [`vedirect`]: https://crates.io/crates/vedirect

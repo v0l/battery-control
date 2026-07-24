@@ -1,0 +1,35 @@
+[package]
+name = "bluetti"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Bluetti power station protocol (Modbus RTU over BLE) — local, no cloud"
+license = "MIT"
+repository = "https://github.com/v0l/battery-control"
+keywords = ["bluetti", "power-station", "modbus", "bluetooth", "solar"]
+categories = ["hardware-support"]
+
+[dependencies]
+modbus_lite = { path = "../modbus_lite", version = "0.1" }
+ble_util = { path = "../ble_util", version = "0.1" }
+thiserror = "2.0"
+log = "0.4"
+async-trait = "0.1"
+
+btleplug = { version = "0.12", optional = true }
+uuid = { version = "1", optional = true }
+tokio = { version = "1", features = ["rt", "time", "sync", "io-util", "macros"], optional = true }
+futures-util = { version = "0.3", optional = true }
+
+clap = { version = "4.5", features = ["derive"], optional = true }
+env_logger = { version = "0.11", optional = true }
+
+[features]
+default = ["bluetooth"]
+bluetooth = ["dep:btleplug", "dep:uuid", "dep:tokio", "dep:futures-util", "ble_util/gatt"]
+cli = ["bluetooth", "dep:clap", "dep:env_logger", "tokio/rt-multi-thread", "tokio/macros"]
+
+[[bin]]
+name = "bluettitool"
+path = "src/bin/bluettitool/main.rs"
+required-features = ["cli"]

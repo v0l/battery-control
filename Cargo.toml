@@ -40,6 +40,7 @@ sok_bms = { path = "crates/sok_bms", version = "0.1", optional = true, default-f
 renogy_bms = { path = "crates/renogy_bms", version = "0.1", optional = true, default-features = false }
 pace_bms = { path = "crates/pace_bms", version = "0.1", optional = true, default-features = false }
 seplos_bms = { path = "crates/seplos_bms", version = "0.1", optional = true, default-features = false }
+bluetti = { path = "crates/bluetti", version = "0.1", optional = true, default-features = false }
 # used only for serial port *enumeration* during discovery
 tokio-serial = { version = "5", optional = true }
 dalybms = { version = "0.1", optional = true, default-features = false, features = ["tokio-serial-async"] }
@@ -74,6 +75,8 @@ renogy = ["dep:renogy_bms", "renogy_bms/bluetooth", "runtime"]
 pace = ["dep:pace_bms", "pace_bms/serial", "runtime", "dep:tokio-serial"]
 # Seplos V3 rack packs (RS485 Modbus).
 seplos = ["dep:seplos_bms", "seplos_bms/serial", "runtime", "dep:tokio-serial"]
+# Bluetti power stations (local BLE, Modbus).
+bluetti = ["dep:bluetti", "bluetti/bluetooth", "runtime"]
 daly = ["dep:dalybms", "runtime", "dep:tokio-serial"]
 victron = ["dep:victron_ble", "runtime", "dep:tokio-stream"]
 vedirect = ["dep:vedirect", "runtime", "dep:tokio-serial"]
@@ -85,11 +88,11 @@ pylontech-can = []
 can-socket = ["dep:socketcan", "pylontech-can"]
 
 # Convenience: everything that builds on the host (no Linux-only CAN socket).
-full = ["anker", "jk", "jbd", "sok", "renogy", "pace", "seplos", "daly", "victron", "vedirect", "pylontech-can"]
+full = ["anker", "jk", "jbd", "sok", "renogy", "pace", "seplos", "bluetti", "daly", "victron", "vedirect", "pylontech-can"]
 
 # The `battery` CLI: BLE + serial discovery across backends.
 cli = [
-    "anker", "jk", "jbd", "sok", "renogy", "pace", "seplos", "daly", "vedirect", "pylontech-can",
+    "anker", "jk", "jbd", "sok", "renogy", "pace", "seplos", "bluetti", "daly", "vedirect", "pylontech-can",
     "dep:clap", "dep:serde_json", "dep:env_logger",
     "tokio/rt-multi-thread", "tokio/macros",
 ]

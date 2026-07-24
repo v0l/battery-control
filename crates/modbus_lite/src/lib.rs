@@ -48,6 +48,12 @@ pub fn build_read_input(unit: u8, start: u16, words: u16) -> [u8; 8] {
     build(unit, 0x04, start, words)
 }
 
+/// Write a single holding register (function `0x06`). The response echoes the
+/// request; a fixed 8 bytes (no byte-count), so read exactly 8 back.
+pub fn build_write_single(unit: u8, addr: u16, value: u16) -> [u8; 8] {
+    build(unit, 0x06, addr, value)
+}
+
 /// Total expected response length once enough of it is buffered to tell.
 /// `None` while the byte-count byte is still missing.
 pub fn response_len(buf: &[u8]) -> Option<usize> {
@@ -78,7 +84,7 @@ pub fn verify(frame: &[u8]) -> Result<&[u8], &'static str> {
     if frame[1] & 0x80 != 0 {
         return Err("modbus exception");
     }
-    if frame[1] != 0x03 && frame[1] != 0x04 {
+    if !matches!(frame[1], 0x03 | 0x04 | 0x06) {
         return Err("unexpected function code");
     }
     Ok(&frame[..n - 2])

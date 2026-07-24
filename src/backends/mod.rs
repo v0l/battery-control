@@ -36,6 +36,11 @@ pub mod seplos;
 #[cfg(feature = "seplos")]
 pub use seplos::SeplosBattery;
 
+#[cfg(feature = "bluetti")]
+pub mod bluetti;
+#[cfg(feature = "bluetti")]
+pub use bluetti::BluettiStation;
+
 #[cfg(feature = "daly")]
 pub mod daly;
 #[cfg(feature = "daly")]
