@@ -26,6 +26,11 @@ pub mod victron;
 #[cfg(feature = "victron")]
 pub use victron::VictronMonitor;
 
+#[cfg(feature = "vedirect")]
+pub mod vedirect;
+#[cfg(feature = "vedirect")]
+pub use vedirect::VedirectMonitor;
+
 #[cfg(feature = "pylontech-can")]
 pub mod pylontech;
 #[cfg(feature = "pylontech-can")]

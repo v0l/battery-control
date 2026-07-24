@@ -5,13 +5,13 @@
 //! Settings → Product info → Encryption data).
 
 use crate::battery::Battery;
-use crate::types::{BatteryStatus, Reading};
+use crate::types::{BatteryStatus, Reading, Unit};
 use crate::{Capabilities, DeviceInfo, Error, Result};
 use async_trait::async_trait;
 use futures_util::{Stream, StreamExt};
 use std::pin::Pin;
 use std::time::Duration;
-use victron_ble::{BatteryMonitorState, DeviceState};
+use victron_ble::{AuxInput, BatteryMonitorState, DeviceState};
 
 type StateStream =
     Pin<Box<dyn Stream<Item = std::result::Result<DeviceState, victron_ble::Error>> + Send>>;
@@ -52,7 +52,33 @@ fn to_status(m: &BatteryMonitorState) -> BatteryStatus {
         .set(Reading::PowerIn, power.filter(|p| *p > 0.0).map(|v| v as f64))
         .set(Reading::PowerOut, power.filter(|p| *p < 0.0).map(|v| v.abs() as f64))
         .set(Reading::TimeRemainingH, m.time_to_go_mins.map(|min| (min / 60.0) as f64));
+
+    // Consumed Ah is reported negative; remaining is unknowable without a
+    // configured capacity, so expose the consumed magnitude as its own sensor.
+    if let Some(ah) = m.consumed_amp_hours_ah {
+        s.set_labeled("consumed_ah", "Consumed", ah.abs() as f64, Unit::AmpHour);
+    }
+    // A temperature aux probe (SmartShunt) reports kelvin.
+    if let AuxInput::TemperatureK(k) = m.aux_input {
+        s.set_labeled("temp.battery", "Battery", (k - 273.15) as f64, Unit::Celsius);
+    }
+    if !m.alarm_reason.is_empty() {
+        s.alarms = m
+            .alarm_reason
+            .iter_names()
+            .map(|(name, _)| name.to_ascii_lowercase().replace('_', " "))
+            .collect();
+    }
     s
+}
+
+async fn next_monitor(stream: &mut StateStream) -> Option<BatteryStatus> {
+    while let Some(item) = stream.next().await {
+        if let Ok(DeviceState::BatteryMonitor(m)) = item {
+            return Some(to_status(&m));
+        }
+    }
+    None
 }
 
 #[async_trait]
@@ -62,24 +88,67 @@ impl Battery for VictronMonitor {
     }
 
     fn capabilities(&self) -> Capabilities {
-        Capabilities::READ_BASIC
+        Capabilities::READ_BASIC | Capabilities::READ_TEMPERATURE | Capabilities::READ_ALARMS
     }
 
     async fn status(&mut self) -> Result<BatteryStatus> {
         // Broadcasts arrive roughly once per second; wait for the next battery
         // monitor frame.
-        let fut = async {
-            while let Some(item) = self.stream.next().await {
-                if let Ok(DeviceState::BatteryMonitor(m)) = item {
-                    return Some(to_status(&m));
-                }
-            }
-            None
-        };
-        match tokio::time::timeout(Duration::from_secs(10), fut).await {
+        match tokio::time::timeout(Duration::from_secs(10), next_monitor(&mut self.stream)).await {
             Ok(Some(s)) => Ok(s),
             Ok(None) => Err(Error::Transport("victron stream ended".into())),
             Err(_) => Err(Error::Timeout),
         }
+    }
+
+    fn has_stream(&self) -> bool {
+        true
+    }
+
+    /// Victron broadcasts Instant Readout frames continuously, so this decodes
+    /// the push stream directly instead of polling.
+    fn stream(&mut self) -> Option<crate::battery::StatusStream<'_>> {
+        use std::collections::VecDeque;
+        type State<'a> = (
+            &'a mut VictronMonitor,
+            Option<BatteryStatus>,
+            VecDeque<crate::StatusUpdate>,
+            bool,
+        );
+        let init: State = (self, None, VecDeque::new(), false);
+        let stream = futures_util::stream::unfold(
+            init,
+            |(this, mut prev, mut queue, ended): State| async move {
+                loop {
+                    if let Some(u) = queue.pop_front() {
+                        return Some((Ok(u), (this, prev, queue, ended)));
+                    }
+                    if ended {
+                        return None;
+                    }
+                    match tokio::time::timeout(
+                        Duration::from_secs(30),
+                        next_monitor(&mut this.stream),
+                    )
+                    .await
+                    {
+                        Ok(Some(status)) => {
+                            queue.extend(status.diff(prev.as_ref()));
+                            prev = Some(status);
+                        }
+                        Ok(None) => {
+                            return Some((
+                                Err(Error::Transport("victron stream ended".into())),
+                                (this, prev, queue, true),
+                            ));
+                        }
+                        Err(_) => {
+                            return Some((Err(Error::Timeout), (this, prev, queue, true)));
+                        }
+                    }
+                }
+            },
+        );
+        Some(Box::pin(stream))
     }
 }

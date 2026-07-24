@@ -56,6 +56,8 @@ enum Locator {
     JbdBle { id: String },
     #[cfg(feature = "daly")]
     DalySerial { port: String },
+    #[cfg(feature = "vedirect")]
+    Vedirect { port: String },
     #[cfg(test)]
     Test,
 }
@@ -123,6 +125,11 @@ impl Discovered {
                 let b = crate::backends::DalyBattery::open_serial(port)?;
                 Ok(Box::new(b))
             }
+            #[cfg(feature = "vedirect")]
+            Locator::Vedirect { port } => {
+                let b = crate::backends::VedirectMonitor::open(port)?;
+                Ok(Box::new(b))
+            }
             #[cfg(test)]
             Locator::Test => Err(Error::Unsupported),
             #[allow(unreachable_patterns)]
@@ -146,7 +153,8 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
         feature = "jk-serial",
         feature = "jbd-ble",
         feature = "jbd-serial",
-        feature = "daly"
+        feature = "daly",
+        feature = "vedirect"
     ))]
     {
         let (anker, jk, jbd, serial) = tokio::join!(
@@ -167,7 +175,8 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
         feature = "jk-serial",
         feature = "jbd-ble",
         feature = "jbd-serial",
-        feature = "daly"
+        feature = "daly",
+        feature = "vedirect"
     )))]
     let _ = opts;
 
@@ -253,7 +262,12 @@ async fn scan_jbd_ble(opts: &DiscoverOptions) -> Vec<Discovered> {
 }
 
 async fn scan_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
-    #[cfg(any(feature = "jk-serial", feature = "jbd-serial", feature = "daly"))]
+    #[cfg(any(
+        feature = "jk-serial",
+        feature = "jbd-serial",
+        feature = "daly",
+        feature = "vedirect"
+    ))]
     if opts.probe_serial {
         return probe_serial(opts).await;
     }
@@ -295,7 +309,12 @@ pub fn resolve<'a>(devices: &'a [Discovered], query: &str) -> Result<&'a Discove
 
 // --- Serial probing ----------------------------------------------------------
 
-#[cfg(any(feature = "jk-serial", feature = "jbd-serial", feature = "daly"))]
+#[cfg(any(
+    feature = "jk-serial",
+    feature = "jbd-serial",
+    feature = "daly",
+    feature = "vedirect"
+))]
 async fn probe_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
     use std::time::Duration;
 
@@ -327,7 +346,12 @@ async fn probe_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
 /// would match every macOS Bluetooth serial alias (headsets, phones, ...) and
 /// `ttys` matches pseudo-terminals — probing those wastes ~10s each and can
 /// never find a BMS.
-#[cfg(any(feature = "jk-serial", feature = "jbd-serial", feature = "daly"))]
+#[cfg(any(
+    feature = "jk-serial",
+    feature = "jbd-serial",
+    feature = "daly",
+    feature = "vedirect"
+))]
 fn looks_like_uart(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
     ["ttyusb", "ttyacm", "usbserial", "usbmodem", "slab", "wchusbserial"]
@@ -335,7 +359,12 @@ fn looks_like_uart(name: &str) -> bool {
         .any(|p| n.contains(p))
 }
 
-#[cfg(any(feature = "jk-serial", feature = "jbd-serial", feature = "daly"))]
+#[cfg(any(
+    feature = "jk-serial",
+    feature = "jbd-serial",
+    feature = "daly",
+    feature = "vedirect"
+))]
 async fn probe_one_port(
     port: &str,
     opts: &DiscoverOptions,
@@ -343,6 +372,7 @@ async fn probe_one_port(
 ) -> Option<Discovered> {
     // Try JK first (multiple bauds), then Daly. Each probe fully opens, reads a
     // status frame, and drops the handle before the next attempt.
+    let _ = opts; // some feature combos (e.g. vedirect-only) use a fixed baud
     #[cfg(feature = "jk-serial")]
     for &baud in &opts.serial_bauds {
         let probe = async {
@@ -411,6 +441,31 @@ async fn probe_one_port(
                 backend: "daly",
                 class: DeviceClass::Bms,
                 locator: Locator::DalySerial {
+                    port: port.to_string(),
+                },
+            });
+        }
+    }
+
+    // Victron VE.Direct streams text frames at a fixed 19200 baud.
+    #[cfg(feature = "vedirect")]
+    {
+        let probe = async {
+            let mut b = crate::backends::VedirectMonitor::open(port).ok()?;
+            b.status().await.ok().map(|_| b)
+        };
+        if let Ok(Some(b)) = tokio::time::timeout(timeout, probe).await {
+            let label = b
+                .info()
+                .model
+                .clone()
+                .unwrap_or_else(|| "Victron VE.Direct".to_string());
+            return Some(Discovered {
+                id: format!("serial:{port}"),
+                label,
+                backend: "vedirect",
+                class: DeviceClass::Monitor,
+                locator: Locator::Vedirect {
                     port: port.to_string(),
                 },
             });

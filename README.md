@@ -19,7 +19,8 @@ use.
 | `jk` | [`jk_bms`] JK BMS | cell BMS | serial + BLE (async) | cells, temp, alarms | MOSFETs, settings |
 | `jbd` | [`jbd_bms`] JBD / Xiaoxiang / Overkill | cell BMS | serial + BLE | cells, temp, alarms | charge/discharge MOSFETs |
 | `daly` | [`dalybms`] Daly BMS | cell BMS | serial (async) | SOC, MOSFET, capacity | MOSFETs, SOC |
-| `victron` | [`victron_ble`] Victron | monitor | BLE broadcast | SOC, V/I | — (read-only) |
+| `victron` | [`victron_ble`] Victron | monitor | BLE broadcast | SOC, V/I, temp, alarms | — (read-only) |
+| `vedirect` | [`vedirect`] Victron VE.Direct | monitor | serial (BMV/SmartShunt) | V/I, SOC, TTG | — (read-only) |
 | `pylontech-can` *(default)* | native Pylontech CAN | rack (EG4/SOK/…) | CAN frames | SOC, V/I/T, limits, alarms | — (read-only) |
 | `can-socket` | Pylontech CAN via SocketCAN | rack | Linux CAN | as above | — |
 
@@ -31,6 +32,7 @@ use.
 [`jbd_bms`]: ./crates/jbd_bms
 [`dalybms`]: https://crates.io/crates/dalybms
 [`victron_ble`]: https://crates.io/crates/victron_ble
+[`vedirect`]: https://crates.io/crates/vedirect
 
 ## Example
 

@@ -64,7 +64,7 @@ jbd-ble = ["dep:jbd_bms", "jbd_bms/bluetooth", "runtime"]
 jbd-serial = ["dep:jbd_bms", "jbd_bms/serial", "runtime", "dep:tokio-serial"]
 daly = ["dep:dalybms", "runtime", "dep:tokio-serial"]
 victron = ["dep:victron_ble", "runtime", "dep:tokio-stream"]
-vedirect = ["dep:vedirect"]
+vedirect = ["dep:vedirect", "runtime", "dep:tokio-serial"]
 
 # Native protocol decoders
 # The Pylontech CAN *decoder* is pure and cross-platform (always testable).
@@ -77,7 +77,7 @@ full = ["anker", "jk", "jbd", "daly", "victron", "vedirect", "pylontech-can"]
 
 # The `battery` CLI: BLE + serial discovery across backends.
 cli = [
-    "anker", "jk", "jbd", "daly", "pylontech-can",
+    "anker", "jk", "jbd", "daly", "vedirect", "pylontech-can",
     "dep:clap", "dep:serde_json", "dep:env_logger",
     "tokio/rt-multi-thread", "tokio/macros",
 ]
