@@ -182,6 +182,18 @@ fn num_setting(id: &str, label: &str, value: i64, kind: SettingKind) -> Setting 
     }
 }
 
+/// An enum-valued setting whose current value is the numeric `value` (matched to
+/// an option's value string).
+fn enum_setting(id: &str, label: &str, value: i64, kind: SettingKind) -> Setting {
+    Setting {
+        id: id.into(),
+        label: Some(label.into()),
+        value: SettingValue::Number(value as f64),
+        kind,
+        writable: true,
+    }
+}
+
 fn bool_setting(id: &str, label: &str, on: bool) -> Setting {
     Setting {
         id: id.into(),
@@ -209,13 +221,8 @@ fn settings(t: &Telemetry) -> Vec<Setting> {
             number(Some(Unit::Watt), 100.0, 1300.0, 10.0)));
     }
     if let Some(v) = t.ac_frequency_hz {
-        out.push(Setting {
-            id: "ac_frequency".into(),
-            label: Some("AC frequency".into()),
-            value: SettingValue::Number(v as f64),
-            kind: SettingKind::Enum { options: vec!["50".into(), "60".into()] },
-            writable: true,
-        });
+        out.push(enum_setting("ac_frequency", "AC frequency", v,
+            SettingKind::enum_of([("50", "50 Hz"), ("60", "60 Hz")])));
     }
     if let Some(v) = t.standby_timeout_min {
         out.push(num_setting("standby_timeout", "Standby timeout", v,
@@ -226,8 +233,10 @@ fn settings(t: &Telemetry) -> Vec<Setting> {
             number(Some(Unit::Minute), 0.0, 1440.0, 1.0)));
     }
     if let Some(v) = t.display_brightness {
-        out.push(num_setting("display_brightness", "Display brightness", v,
-            number(None, 0.0, 3.0, 1.0)));
+        out.push(enum_setting("display_brightness", "Display brightness", v,
+            SettingKind::enum_of([
+                ("0", "Off"), ("1", "Low"), ("2", "Medium"), ("3", "High"),
+            ])));
     }
     if let Some(on) = t.smart_ac {
         out.push(bool_setting("smart_ac", "Smart AC", on));

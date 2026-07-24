@@ -47,6 +47,6 @@ pub use discovery::{discover, resolve, DeviceClass, Discovered, DiscoverOptions}
 pub use error::{Error, Result};
 pub use types::{
     BatteryStatus, CellInfo, Command, DeviceInfo, PortDirection, PortInfo, Reading, Sensor,
-    Setting, SettingKind, SettingValue, StatusUpdate, Switch, SwitchId, UnknownId, Unit,
-    TEMP_PREFIX,
+    Setting, SettingKind, SettingOption, SettingValue, StatusUpdate, Switch, SwitchId, UnknownId,
+    Unit, TEMP_PREFIX,
 };

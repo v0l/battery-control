@@ -366,10 +366,40 @@ pub enum SettingKind {
         step: Option<f64>,
         unit: Option<Unit>,
     },
-    /// One of a fixed set of string options (write with [`Command::Set`]).
-    Enum { options: Vec<String> },
+    /// One of a fixed set of options — the **valid inputs** for this setting.
+    /// Write with [`Command::Set`] using an option's
+    /// [`value`](SettingOption::value); the [`label`](SettingOption::label) is
+    /// for display. UIs render this as a picker and reject anything else.
+    Enum { options: Vec<SettingOption> },
     /// Free-form text (write with [`Command::Set`]).
     Text,
+}
+
+/// One allowed choice for an [`SettingKind::Enum`] setting: the `value` sent to
+/// the device and a human `label` for the UI.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct SettingOption {
+    pub value: String,
+    pub label: String,
+}
+
+impl SettingOption {
+    /// An option with distinct value and display label.
+    pub fn new(value: impl Into<String>, label: impl Into<String>) -> Self {
+        Self { value: value.into(), label: label.into() }
+    }
+}
+
+impl SettingKind {
+    /// Build an [`Enum`](SettingKind::Enum) from `(value, label)` pairs.
+    pub fn enum_of<V: Into<String>, L: Into<String>>(opts: impl IntoIterator<Item = (V, L)>) -> Self {
+        SettingKind::Enum {
+            options: opts
+                .into_iter()
+                .map(|(v, l)| SettingOption::new(v, l))
+                .collect(),
+        }
+    }
 }
 
 /// A **readable/writable** device configuration value — BMS thresholds (cell
