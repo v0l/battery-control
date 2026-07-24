@@ -222,6 +222,13 @@ impl Telemetry {
         fn boolb(p: &Params, k: &str, i: usize) -> Option<bool> {
             p.get(k).and_then(|b| b.get(i)).map(|&v| v != 0)
         }
+        // TEMP: dump the raw settings vectors so offsets can be re-derived.
+        for k in ["a4", "da"] {
+            if let Some(v) = p.get(k) {
+                let hex: String = v.iter().map(|b| format!("{b:02x}")).collect();
+                log::info!("SETTINGS {k}[{}] = {hex}", v.len());
+            }
+        }
         Telemetry {
             temperature_c: range("a5", 1, 2, true),
             battery_percentage: range("a5", 3, 4, false),
