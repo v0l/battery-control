@@ -17,6 +17,7 @@ fn p() -> BigUint {
 fn a() -> BigUint {
     hex("FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFC")
 }
+#[cfg_attr(not(test), allow(dead_code))] // curve `b` used for on-curve checks
 fn b() -> BigUint {
     hex("1C97BEFC54BD7A8B65ACF89F81D4D4ADC565FA45")
 }
