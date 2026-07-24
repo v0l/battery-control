@@ -51,8 +51,11 @@ async fn main() -> Result<()> {
                 println!("no SOK devices found");
             }
             for d in devices {
+                // The advertised variant is only a hint — some EE packs still
+                // advertise the FFF0 service. The real protocol is detected at
+                // connect time from the actual GATT characteristics.
                 println!(
-                    "bt:{}  {}  {}  rssi={}",
+                    "bt:{}  {}  adv-hint:{}  rssi={}",
                     d.id,
                     d.name.as_deref().unwrap_or("(unnamed)"),
                     d.variant.map(|v| v.as_str()).unwrap_or("?"),
