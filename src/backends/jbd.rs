@@ -47,11 +47,26 @@ impl JbdBattery {
     }
 
     fn refresh_info(&mut self) {
+        let id = self.bms.identity();
+        if self.info.manufacturer.is_none() {
+            self.info.manufacturer = id.manufacturer.clone();
+        }
+        if self.info.serial.is_none() {
+            self.info.serial = id.serial.clone();
+        }
+        if self.info.firmware.is_none() {
+            self.info.firmware = id.firmware.clone();
+        }
+        if self.info.hardware.is_none() {
+            self.info.hardware = id.hardware.clone();
+        }
         if self.info.model.is_none() {
+            // Prefer the advertised name, then the protocol cell-count model.
             let model = self.bms.model();
-            if model != "JBD" {
-                self.info.model = Some(model);
-            }
+            self.info.model = id
+                .name
+                .clone()
+                .or_else(|| (model != "JBD").then_some(model));
         }
     }
 }

@@ -36,8 +36,26 @@ impl RenogyBattery {
     }
 
     fn refresh_info(&mut self, d: &RenogyData) {
+        let id = self.bms.identity();
+        if self.info.manufacturer.is_none() {
+            self.info.manufacturer = id.manufacturer.clone();
+        }
+        if self.info.serial.is_none() {
+            self.info.serial = id.serial.clone();
+        }
+        if self.info.firmware.is_none() {
+            self.info.firmware = id.firmware.clone();
+        }
+        if self.info.hardware.is_none() {
+            self.info.hardware = id.hardware.clone();
+        }
         if self.info.model.is_none() {
-            self.info.model = Some(d.model.clone().unwrap_or_else(|| "Renogy".into()));
+            // Protocol model (e.g. RBT100LFP12S-G) is best; else advertised name.
+            self.info.model = d
+                .model
+                .clone()
+                .or_else(|| id.name.clone())
+                .or_else(|| Some("Renogy".into()));
         }
     }
 }

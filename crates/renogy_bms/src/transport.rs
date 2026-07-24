@@ -11,6 +11,10 @@ pub trait Transport: Send {
     async fn close(&mut self) -> Result<()>;
     async fn write(&mut self, data: &[u8]) -> Result<usize>;
     async fn read_frame(&mut self) -> Result<Vec<u8>>;
+    /// Static device identity (BLE DIS), read at `open`. Empty by default.
+    fn identity(&self) -> ble_util::Identity {
+        ble_util::Identity::default()
+    }
 }
 
 #[cfg(feature = "bluetooth")]

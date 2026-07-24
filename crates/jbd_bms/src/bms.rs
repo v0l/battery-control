@@ -18,17 +18,25 @@ pub struct JbdBms {
     transport: Box<dyn Transport>,
     asm: FrameAssembler,
     data: JbdData,
+    identity: ble_util::Identity,
 }
 
 impl JbdBms {
     /// Wrap an already-constructed transport (mainly for tests).
     pub async fn with_transport(mut transport: Box<dyn Transport>) -> Result<Self> {
         transport.open().await?;
+        let identity = transport.identity();
         Ok(Self {
             transport,
             asm: FrameAssembler::new(),
             data: JbdData::default(),
+            identity,
         })
+    }
+
+    /// Static device identity from the BLE Device Information Service.
+    pub fn identity(&self) -> &ble_util::Identity {
+        &self.identity
     }
 
     /// Connect over BLE to the peripheral id from [`crate::scan`].

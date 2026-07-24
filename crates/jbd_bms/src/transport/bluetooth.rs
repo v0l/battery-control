@@ -87,6 +87,7 @@ pub struct BluetoothTransport {
     write: Option<Characteristic>,
     notifications: Option<NotificationStream>,
     leftover: Vec<u8>,
+    identity: ble_util::Identity,
 }
 
 impl BluetoothTransport {
@@ -99,6 +100,7 @@ impl BluetoothTransport {
             write: None,
             notifications: None,
             leftover: Vec::new(),
+            identity: ble_util::Identity::default(),
         }
     }
 }
@@ -159,12 +161,17 @@ impl Transport for BluetoothTransport {
             .await
             .map_err(|e| Error::Transport(format!("bt notifications: {e}")))?;
 
+        self.identity = ble_util::read_identity(&peripheral).await;
         self.notifications = Some(notifications);
         self.notify = Some(notify);
         self.write = Some(write);
         self.peripheral = Some(peripheral);
         self.leftover.clear();
         Ok(())
+    }
+
+    fn identity(&self) -> ble_util::Identity {
+        self.identity.clone()
     }
 
     async fn close(&mut self) -> Result<()> {

@@ -88,6 +88,7 @@ pub struct BluetoothTransport {
     peripheral: Option<Peripheral>,
     write: Option<Characteristic>,
     notifications: Option<NotificationStream>,
+    identity: ble_util::Identity,
 }
 
 impl BluetoothTransport {
@@ -97,6 +98,7 @@ impl BluetoothTransport {
             peripheral: None,
             write: None,
             notifications: None,
+            identity: ble_util::Identity::default(),
         }
     }
 }
@@ -155,10 +157,15 @@ impl Transport for BluetoothTransport {
             .await
             .map_err(|e| Error::Transport(format!("bt notifications: {e}")))?;
 
+        self.identity = ble_util::read_identity(&peripheral).await;
         self.notifications = Some(notifications);
         self.write = Some(write);
         self.peripheral = Some(peripheral);
         Ok(())
+    }
+
+    fn identity(&self) -> ble_util::Identity {
+        self.identity.clone()
     }
 
     async fn close(&mut self) -> Result<()> {

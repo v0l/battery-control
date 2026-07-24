@@ -14,17 +14,25 @@ pub struct RenogyBms {
     transport: Box<dyn Transport>,
     unit: u8,
     data: RenogyData,
+    identity: ble_util::Identity,
 }
 
 impl RenogyBms {
     /// Wrap an already-constructed transport (mainly for tests).
     pub async fn with_transport(mut transport: Box<dyn Transport>, unit: u8) -> Result<Self> {
         transport.open().await?;
+        let identity = transport.identity();
         Ok(Self {
             transport,
             unit,
             data: RenogyData::default(),
+            identity,
         })
+    }
+
+    /// Static device identity from the BLE Device Information Service.
+    pub fn identity(&self) -> &ble_util::Identity {
+        &self.identity
     }
 
     /// Connect over BLE using the default broadcast unit id (stand-alone pack).

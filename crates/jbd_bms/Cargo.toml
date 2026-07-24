@@ -13,6 +13,7 @@ categories = ["hardware-support"]
 thiserror = "2.0"
 log = "0.4"
 async-trait = "0.1"
+ble_util = { path = "../ble_util", version = "0.1" }
 
 # transports (feature-gated)
 btleplug = { version = "0.12", optional = true }
@@ -29,7 +30,7 @@ env_logger = { version = "0.11", optional = true }
 
 [features]
 default = ["bluetooth"]
-bluetooth = ["dep:btleplug", "dep:uuid", "dep:tokio", "dep:futures-util"]
+bluetooth = ["dep:btleplug", "dep:uuid", "dep:tokio", "dep:futures-util", "ble_util/gatt"]
 serial = ["dep:tokio-serial", "dep:tokio", "dep:futures-util"]
 cli = ["bluetooth", "serial", "dep:clap", "dep:serde", "dep:serde_json", "dep:env_logger", "tokio/rt-multi-thread", "tokio/macros"]
 
