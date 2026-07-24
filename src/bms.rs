@@ -97,6 +97,9 @@ pub async fn read_data(
     };
     let mut got_volts = false;
     let mut got_settings = pack.settings.is_some();
+    // Once live data is flowing, don't wait forever for a settings frame —
+    // some firmware (e.g. JK-PB fw15.x) never sends one.
+    let mut settings_patience: u32 = 2;
     asm.clear();
     'cell: for _ in 0..RETRIES {
         let handle = session
@@ -118,6 +121,13 @@ pub async fn read_data(
                 }
             }
             tokio::time::sleep(POLL).await;
+        }
+        if got_volts && need_settings && !got_settings {
+            settings_patience -= 1;
+            if settings_patience == 0 {
+                log::warn!("no settings frame received; continuing with live data only");
+                break 'cell;
+            }
         }
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
