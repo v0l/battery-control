@@ -1,5 +1,9 @@
-//! BLE transport for SOK batteries: service `FFE0`, notify `FFE1`, write `FFE2`.
+//! BLE transport for SOK batteries. Two generations are supported and detected
+//! by which service the device exposes:
+//! - **EE** (`0xEE` commands): service `FFE0`, notify `FFE1`, write `FFE2`.
+//! - **ABC** (Modbus): service `FFF0`, notify `FFF1`, write `FFF2`.
 
+use crate::data::Variant;
 use crate::error::{Error, Result};
 use crate::transport::Transport;
 use async_trait::async_trait;
@@ -13,9 +17,16 @@ use std::pin::Pin;
 use std::time::Duration;
 use uuid::Uuid;
 
-pub const SERVICE_UUID: Uuid = Uuid::from_u128(0x0000ffe0_0000_1000_8000_00805f9b34fb);
-pub const NOTIFY_UUID: Uuid = Uuid::from_u128(0x0000ffe1_0000_1000_8000_00805f9b34fb);
-pub const WRITE_UUID: Uuid = Uuid::from_u128(0x0000ffe2_0000_1000_8000_00805f9b34fb);
+const fn uuid16(x: u16) -> Uuid {
+    Uuid::from_u128(0x0000_0000_0000_1000_8000_0080_5f9b_34fb | ((x as u128) << 96))
+}
+
+const EE_SERVICE: Uuid = uuid16(0xffe0);
+const EE_NOTIFY: Uuid = uuid16(0xffe1);
+const EE_WRITE: Uuid = uuid16(0xffe2);
+const ABC_SERVICE: Uuid = uuid16(0xfff0);
+const ABC_NOTIFY: Uuid = uuid16(0xfff1);
+const ABC_WRITE: Uuid = uuid16(0xfff2);
 
 /// A discovered BLE peripheral.
 #[derive(Debug, Clone)]
@@ -23,6 +34,8 @@ pub struct BtDevice {
     pub id: String,
     pub name: Option<String>,
     pub rssi: Option<i16>,
+    /// Variant inferred from the advertisement, if determinable.
+    pub variant: Option<Variant>,
 }
 
 async fn adapter() -> Result<btleplug::platform::Adapter> {
@@ -38,8 +51,18 @@ async fn adapter() -> Result<btleplug::platform::Adapter> {
         .ok_or_else(|| Error::Transport("no bluetooth adapter found".into()))
 }
 
-/// Scan for SOK batteries. SOK shares service `FFE0` with other vendors (JK),
-/// so filter on the `SOK` name prefix to avoid claiming a JK pack.
+fn name_is_sok(name: Option<&str>) -> bool {
+    name.map(|n| {
+        let l = n.to_ascii_lowercase();
+        l.starts_with("sok") || l.starts_with("sk") || l.starts_with("abc")
+    })
+    .unwrap_or(false)
+}
+
+/// Scan for SOK batteries of either generation. Matches on the advertised
+/// service (`FFE0`/`FFF0`) or a `SOK`/`SK`/`ABC` name prefix — both SOK
+/// generations share their service range with other vendors (e.g. JK on
+/// `FFE0`), so the name prefix disambiguates.
 pub async fn scan(secs: u64) -> Result<Vec<BtDevice>> {
     let adapter = adapter().await?;
     adapter
@@ -55,19 +78,24 @@ pub async fn scan(secs: u64) -> Result<Vec<BtDevice>> {
 
     let mut out = Vec::new();
     for p in peripherals {
-        let (name, rssi) = match p.properties().await {
-            Ok(Some(props)) => (props.local_name, props.rssi),
-            _ => (None, None),
+        let (name, rssi, services) = match p.properties().await {
+            Ok(Some(props)) => (props.local_name, props.rssi, props.services),
+            _ => (None, None, Vec::new()),
         };
-        let is_sok = name
-            .as_deref()
-            .map(|n| n.to_ascii_lowercase().starts_with("sok"))
-            .unwrap_or(false);
-        if is_sok {
+        let adv_variant = if services.contains(&ABC_SERVICE) {
+            Some(Variant::Abc)
+        } else if services.contains(&EE_SERVICE) {
+            Some(Variant::Ee)
+        } else {
+            None
+        };
+        // Require a SOK-ish name so we don't claim a JK pack on FFE0.
+        if name_is_sok(name.as_deref()) {
             out.push(BtDevice {
                 id: p.id().to_string(),
                 name,
                 rssi,
+                variant: adv_variant,
             });
         }
     }
@@ -81,6 +109,7 @@ pub struct BluetoothTransport {
     peripheral: Option<Peripheral>,
     write: Option<Characteristic>,
     notifications: Option<NotificationStream>,
+    variant: Variant,
 }
 
 impl BluetoothTransport {
@@ -90,6 +119,7 @@ impl BluetoothTransport {
             peripheral: None,
             write: None,
             notifications: None,
+            variant: Variant::Abc, // provisional; set for real in `open`
         }
     }
 }
@@ -128,16 +158,21 @@ impl Transport for BluetoothTransport {
             .map_err(|e| Error::Transport(format!("bt discover: {e}")))?;
 
         let chars = peripheral.characteristics();
-        let notify = chars
-            .iter()
-            .find(|c| c.uuid == NOTIFY_UUID)
-            .cloned()
-            .ok_or_else(|| Error::Transport("notify characteristic ffe1 not found".into()))?;
-        let write = chars
-            .iter()
-            .find(|c| c.uuid == WRITE_UUID)
-            .cloned()
-            .ok_or_else(|| Error::Transport("write characteristic ffe2 not found".into()))?;
+        let has = |u: Uuid| chars.iter().any(|c| c.uuid == u);
+
+        // Prefer ABC (Modbus) when present, else fall back to the EE service.
+        let (variant, notify_uuid, write_uuid) = if has(ABC_NOTIFY) && has(ABC_WRITE) {
+            (Variant::Abc, ABC_NOTIFY, ABC_WRITE)
+        } else if has(EE_NOTIFY) && has(EE_WRITE) {
+            (Variant::Ee, EE_NOTIFY, EE_WRITE)
+        } else {
+            return Err(Error::Transport(
+                "no SOK service (FFF0/FFE0) on device".into(),
+            ));
+        };
+
+        let notify = chars.iter().find(|c| c.uuid == notify_uuid).cloned().unwrap();
+        let write = chars.iter().find(|c| c.uuid == write_uuid).cloned().unwrap();
 
         peripheral
             .subscribe(&notify)
@@ -151,6 +186,7 @@ impl Transport for BluetoothTransport {
         self.notifications = Some(notifications);
         self.write = Some(write);
         self.peripheral = Some(peripheral);
+        self.variant = variant;
         Ok(())
     }
 
@@ -178,5 +214,9 @@ impl Transport for BluetoothTransport {
             Ok(Some(n)) => Ok(n.value),
             _ => Ok(Vec::new()),
         }
+    }
+
+    fn variant(&self) -> Variant {
+        self.variant
     }
 }

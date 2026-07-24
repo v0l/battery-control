@@ -18,7 +18,7 @@ use.
 | `anker` *(default)* | [`anker_solix`] Anker SOLIX | power station | BLE | SOC, ports, temp | AC/DC ports |
 | `jk` | [`jk_bms`] JK BMS | cell BMS | serial + BLE (async) | cells, temp, alarms | MOSFETs, settings |
 | `jbd` | [`jbd_bms`] JBD / Xiaoxiang / Overkill | cell BMS | serial + BLE | cells, temp, alarms | charge/discharge MOSFETs |
-| `sok` | [`sok_bms`] SOK 12V LiFePO4 | cell BMS | BLE | cells, temp, SOC, capacity | — (read-only) |
+| `sok` | [`sok_bms`] SOK / ABC-BMS | cell BMS | BLE (EE + Modbus) | cells, temps, SOC, capacity | — (read-only) |
 | `daly` | [`dalybms`] Daly BMS | cell BMS | serial (async) | SOC, MOSFET, capacity | MOSFETs, SOC |
 | `victron` | [`victron_ble`] Victron | monitor | BLE broadcast | SOC, V/I, temp, alarms | — (read-only) |
 | `vedirect` | [`vedirect`] Victron VE.Direct | monitor | serial (BMV/SmartShunt) | V/I, SOC, TTG | — (read-only) |

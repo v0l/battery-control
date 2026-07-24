@@ -279,8 +279,8 @@ async fn scan_jbd_ble(opts: &DiscoverOptions) -> Vec<Discovered> {
     Vec::new()
 }
 
-/// SOK batteries advertising over BLE, filtered by the `SOK` name prefix (SOK
-/// shares service ffe0 with JK, so a service filter alone would collide).
+/// SOK batteries (both generations) advertising over BLE, filtered by a
+/// SOK/SK/ABC name prefix (they share service ranges with other vendors).
 async fn scan_sok_ble(opts: &DiscoverOptions) -> Vec<Discovered> {
     #[cfg(feature = "sok")]
     {

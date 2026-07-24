@@ -22,9 +22,17 @@ impl SokBattery {
             bms,
             info: DeviceInfo {
                 backend: "sok".into(),
-                model: Some("SOK".into()),
                 ..Default::default()
             },
+        }
+    }
+
+    fn refresh_info(&mut self, d: &SokData) {
+        if self.info.model.is_none() {
+            self.info.model = Some(d.model.clone().unwrap_or_else(|| "SOK".into()));
+        }
+        if self.info.serial.is_none() {
+            self.info.serial = d.serial.clone();
         }
     }
 
@@ -45,10 +53,20 @@ fn to_status(d: &SokData) -> BatteryStatus {
         .set(Reading::Current, Some(d.current as f64))
         .set(Reading::PowerIn, (d.power > 0.0).then_some(d.power as f64))
         .set(Reading::PowerOut, (d.power < 0.0).then(|| d.power.abs() as f64))
+        .set(Reading::CapacityRemainingAh, d.remaining.map(|v| v as f64))
         .set(Reading::CapacityFullAh, Some(d.capacity as f64))
-        .set(Reading::Cycles, Some(d.cycles as f64));
+        .set(Reading::Cycles, d.cycles.map(|v| v as f64));
 
-    s.set_labeled("temp.battery", "Battery", d.temperature as f64, Unit::Celsius);
+    // ABC exposes up to four probes (cell1/cell2/MOSFET/environment); EE one.
+    let labels = ["T1", "T2", "MOSFET", "Environment"];
+    if d.temps.len() > 1 {
+        for (i, t) in d.temps.iter().enumerate() {
+            let id = format!("temp.t{}", i + 1);
+            s.set_labeled(&id, labels.get(i).copied().unwrap_or("T"), *t as f64, Unit::Celsius);
+        }
+    } else {
+        s.set_labeled("temp.battery", "Battery", d.temperature as f64, Unit::Celsius);
+    }
 
     s.cells = d
         .cells
@@ -79,8 +97,10 @@ impl Battery for SokBattery {
             .bms
             .read()
             .await
-            .map_err(|e| Error::Transport(e.to_string()))?;
-        Ok(to_status(data))
+            .map_err(|e| Error::Transport(e.to_string()))?
+            .clone();
+        self.refresh_info(&data);
+        Ok(to_status(&data))
     }
 
     async fn disconnect(&mut self) -> Result<()> {

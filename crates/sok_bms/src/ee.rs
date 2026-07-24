@@ -1,6 +1,6 @@
-//! SOK BLE wire protocol — pure, no I/O.
+//! SOK `0xEE`-command wire protocol (older 12V packs) — pure, no I/O.
 //!
-//! SOK 12 V LiFePO4 batteries speak a small command protocol over BLE (service
+//! These batteries speak a small command protocol over BLE (service
 //! `FFE0`, notify `FFE1`, write `FFE2`). A request is six bytes:
 //! ```text
 //!   EE <cmd> 00 00 00 <crc8>
@@ -99,43 +99,29 @@ pub fn parse_cells(buf: &[u8]) -> Option<[f32; 4]> {
     Some(cells)
 }
 
-/// A decoded pack snapshot.
-#[derive(Debug, Clone, Default)]
-pub struct SokData {
-    pub voltage: f32,     // V (mean cell × 4)
-    pub current: f32,     // A (+ charge / − discharge)
-    pub power: f32,       // W
-    pub soc: u16,         // %
-    pub temperature: f32, // °C
-    pub capacity: f32,    // Ah
-    pub cycles: u16,
-    pub cells: Vec<f32>, // per-cell V
-}
+use crate::data::SokData;
 
-impl SokData {
-    /// Assemble from the four collected response frames.
-    pub fn from_frames(
-        info: &[u8],
-        temp: &[u8],
-        capacity: &[u8],
-        cells: &[u8],
-    ) -> Option<Self> {
-        let (current, cycles, soc) = parse_info(info)?;
-        let temperature = parse_temp(temp)?;
-        let capacity = parse_capacity(capacity)?;
-        let cells = parse_cells(cells)?;
-        let voltage = cells.iter().sum::<f32>() / cells.len() as f32 * 4.0;
-        Some(Self {
-            voltage,
-            current,
-            power: voltage * current,
-            soc,
-            temperature,
-            capacity,
-            cycles,
-            cells: cells.to_vec(),
-        })
-    }
+/// Assemble a [`SokData`] from the four collected response frames.
+pub fn from_frames(info: &[u8], temp: &[u8], capacity: &[u8], cells: &[u8]) -> Option<SokData> {
+    let (current, cycles, soc) = parse_info(info)?;
+    let temperature = parse_temp(temp)?;
+    let capacity = parse_capacity(capacity)?;
+    let cells = parse_cells(cells)?;
+    let voltage = cells.iter().sum::<f32>() / cells.len() as f32 * 4.0;
+    Some(SokData {
+        voltage,
+        current,
+        power: voltage * current,
+        soc,
+        temperature,
+        temps: vec![temperature],
+        capacity,
+        remaining: None,
+        cycles: Some(cycles),
+        cells: cells.to_vec(),
+        model: None,
+        serial: None,
+    })
 }
 
 #[cfg(test)]
@@ -213,7 +199,7 @@ mod tests {
         assert!((cells[0] - 3.300).abs() < 1e-4);
         assert!((cells[3] - 3.302).abs() < 1e-4);
 
-        let data = SokData::from_frames(
+        let data = from_frames(
             &{ let mut i = vec![0u8; 20]; i[16] = 50; i },
             &{ let mut t = vec![0u8; 20]; t[5] = 20; t },
             &{ let mut c = vec![0u8; 20]; c[6] = 0x32; c },

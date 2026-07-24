@@ -1,14 +1,18 @@
-//! SOK Bluetooth LiFePO4 battery protocol.
+//! SOK Bluetooth LiFePO4 battery protocols.
 //!
-//! A small driver for SOK 12 V batteries, which speak a custom `0xEE`-command
-//! protocol (CRC-8/MAXIM) over BLE (service `FFE0`). Mirrors the shape of
-//! `jk_bms`/`jbd_bms`: [`scan`], [`SokBms::connect_ble`], [`SokBms::read`].
-//! Ported from `IAmTheMitchell/sok-ble`.
+//! Supports both SOK BLE generations, auto-detected at connect time:
+//! - **EE** — older 12V packs speaking `0xEE` command frames (service `FFE0`),
+//!   ported from `IAmTheMitchell/sok-ble`.
+//! - **ABC** — the "ABC BMS" app: Modbus RTU over BLE (service `FFF0`), ported
+//!   from `node-red-contrib/node-red-contrib-sok`.
+//!
+//! Mirrors the shape of `jk_bms`/`jbd_bms`: [`scan`], [`SokBms::connect_ble`],
+//! [`SokBms::read`].
 //!
 //! ```no_run
 //! # async fn run() -> sok_bms::Result<()> {
 //! for dev in sok_bms::scan(4).await? {
-//!     println!("{} ({:?})", dev.id, dev.name);
+//!     println!("{} ({:?}) variant={:?}", dev.id, dev.name, dev.variant);
 //! }
 //! let mut bms = sok_bms::SokBms::connect_ble("<peripheral-id>").await?;
 //! let d = bms.read().await?;
@@ -16,14 +20,16 @@
 //! # Ok(()) }
 //! ```
 
+pub mod abc;
 pub mod bms;
+pub mod data;
+pub mod ee;
 pub mod error;
-pub mod protocol;
 pub mod transport;
 
 pub use bms::SokBms;
+pub use data::{SokData, Variant};
 pub use error::{Error, Result};
-pub use protocol::{crc8, SokData};
 
 #[cfg(feature = "bluetooth")]
 pub use transport::{scan, BtDevice};

@@ -52,9 +52,10 @@ async fn main() -> Result<()> {
             }
             for d in devices {
                 println!(
-                    "bt:{}  {}  rssi={}",
+                    "bt:{}  {}  {}  rssi={}",
                     d.id,
                     d.name.as_deref().unwrap_or("(unnamed)"),
+                    d.variant.map(|v| v.as_str()).unwrap_or("?"),
                     d.rssi.map(|r| r.to_string()).unwrap_or_else(|| "?".into())
                 );
             }
@@ -93,19 +94,20 @@ fn print_data(d: &SokData, json: bool) {
     if json {
         let cells: Vec<String> = d.cells.iter().map(|v| format!("{v:.3}")).collect();
         println!(
-            "{{\"soc\":{},\"voltage\":{:.2},\"current\":{:.2},\"power\":{:.1},\"capacity\":{:.1},\"cycles\":{},\"temperature\":{:.1},\"cells\":[{}]}}",
-            d.soc, d.voltage, d.current, d.power, d.capacity, d.cycles, d.temperature, cells.join(",")
+            "{{\"model\":{:?},\"soc\":{},\"voltage\":{:.2},\"current\":{:.2},\"power\":{:.1},\"capacity\":{:.1},\"cycles\":{},\"temperature\":{:.1},\"cells\":[{}]}}",
+            d.model.as_deref().unwrap_or("SOK"),
+            d.soc, d.voltage, d.current, d.power, d.capacity,
+            d.cycles.map(|c| c.to_string()).unwrap_or_else(|| "null".into()),
+            d.temperature, cells.join(",")
         );
     } else {
-        println!("SOK");
+        println!("{}", d.model.as_deref().unwrap_or("SOK"));
         println!(
             "  SOC {}%   {:.2} V   {:.2} A   {:.1} W",
             d.soc, d.voltage, d.current, d.power
         );
-        println!(
-            "  {:.1} Ah   {} cycles   {:.1}°C",
-            d.capacity, d.cycles, d.temperature
-        );
+        let cycles = d.cycles.map(|c| format!("{c} cycles   ")).unwrap_or_default();
+        println!("  {:.1} Ah   {}{:.1}°C", d.capacity, cycles, d.temperature);
         if !d.cells.is_empty() {
             let min = d.cells.iter().cloned().fold(f32::MAX, f32::min);
             let max = d.cells.iter().cloned().fold(f32::MIN, f32::max);
