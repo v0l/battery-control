@@ -54,8 +54,30 @@ impl AnkerBattery {
         }
     }
 
+    /// Ensure the secure (GCM) session is negotiated and authenticated before a
+    /// settings write. Gen-2 only; lazily upgraded so the basic telemetry / AC-DC
+    /// path is untouched until settings are actually used.
+    ///
+    /// The auth gate needs a user id; it defaults to guest (empty) but can be
+    /// overridden with `ANKER_UID` (matching the one-time on-device bond).
+    async fn ensure_secure(&mut self) -> Result<()> {
+        if self.device.is_secure() {
+            return Ok(());
+        }
+        self.device
+            .negotiate_secure()
+            .await
+            .map_err(|e| Error::Transport(format!("secure negotiate failed: {e}")))?;
+        let uid = std::env::var("ANKER_UID").unwrap_or_default();
+        self.device
+            .authenticate(uid.as_bytes())
+            .await
+            .map_err(|e| Error::Transport(e.to_string()))
+    }
+
     /// Dispatch a numeric/enum `Command::Set` to the matching crate setter.
     async fn set_value(&mut self, id: &str, value: &str) -> Result<()> {
+        self.ensure_secure().await?;
         let num: f64 = value
             .trim()
             .parse()
@@ -263,10 +285,15 @@ impl Battery for AnkerBattery {
                             .set_light(if on { Brightness::High } else { Brightness::Off })
                             .await
                     }
-                    "smart_ac" => self.device.set_smart_ac(on).await,
-                    "car_saving" => self.device.set_car_saving(on).await,
-                    "port_memory" => self.device.set_port_memory(on).await,
-                    "screensaver" => self.device.set_screensaver(on).await,
+                    "smart_ac" | "car_saving" | "port_memory" | "screensaver" => {
+                        self.ensure_secure().await?;
+                        match id.as_str() {
+                            "smart_ac" => self.device.set_smart_ac(on).await,
+                            "car_saving" => self.device.set_car_saving(on).await,
+                            "port_memory" => self.device.set_port_memory(on).await,
+                            _ => self.device.set_screensaver(on).await,
+                        }
+                    }
                     other => {
                         return Err(Error::InvalidArgument(format!(
                             "'{other}' is not controllable on this device"
