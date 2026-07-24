@@ -103,6 +103,7 @@ impl AnkerBattery {
         if s27 == 0x00 {
             crate::credentials::save(&self.cred_key(), &uid);
             self.authed = true;
+            let _ = self.device.subscribe().await; // start telemetry
             Ok(())
         } else {
             Err(Error::Backend(
@@ -314,12 +315,15 @@ impl Battery for AnkerBattery {
             .await
             .map_err(|e| Error::Transport(e.to_string()))?;
         if s27 == 0x00 {
+            log::info!("anker: already authed; starting telemetry");
             crate::credentials::save(&self.cred_key(), &uid);
             self.authed = true;
+            let _ = self.device.subscribe().await;
             return Ok(AuthState::Authed);
         }
         // Not bound: attempt the bond (works only while the button is held), then
         // re-check the auth gate.
+        log::info!("anker: not bound (4027={s27:#04x}); sending bond");
         let _ = self
             .device
             .bind_user_id(&uid)
@@ -331,10 +335,13 @@ impl Battery for AnkerBattery {
             .await
             .map_err(|e| Error::Transport(e.to_string()))?;
         if s27b == 0x00 {
+            log::info!("anker: bond succeeded; starting telemetry");
             crate::credentials::save(&self.cred_key(), &uid);
             self.authed = true;
+            let _ = self.device.subscribe().await;
             Ok(AuthState::Authed)
         } else {
+            log::info!("anker: still not bound (4027={s27b:#04x}); prompting for button");
             Ok(AuthState::approval(
                 "Press and hold the power button on your Anker for ~3s, then tap Retry.",
             ))

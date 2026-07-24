@@ -508,7 +508,9 @@ impl Device {
         let (_, r2) = self
             .send_secure_neg_session([0x40, 0x27], &p4027, Duration::from_secs(4))
             .await?;
-        Ok((r1.first().copied().unwrap_or(0xff), r2.first().copied().unwrap_or(0xff)))
+        let (s22, s27) = (r1.first().copied().unwrap_or(0xff), r2.first().copied().unwrap_or(0xff));
+        log::info!("auth_gate: 4022={s22:#04x} 4027={s27:#04x} (uid={:?})", String::from_utf8_lossy(uid));
+        Ok((s22, s27))
     }
 
     /// Send the one-time `4023 bindUserId` bond for `uid`. The device only
@@ -532,7 +534,9 @@ impl Device {
         let (_, r) = self
             .send_secure_neg_session([0x40, 0x23], &payload, Duration::from_secs(3))
             .await?;
-        Ok(r.first().copied().unwrap_or(0xff))
+        let s = r.first().copied().unwrap_or(0xff);
+        log::info!("bind_user_id: 4023={s:#04x} (uid={:?})", String::from_utf8_lossy(uid));
+        Ok(s)
     }
 
     /// Set the battery charge/discharge SoC limits (max / min %) on a gen-2
@@ -768,6 +772,21 @@ impl Device {
     pub async fn set_dc(&mut self, on: bool) -> Result<()> {
         self.send_command_no_ack(self.model.cmd_dc_output(), crate::model::on_off_payload(on))
             .await
+    }
+
+    /// (Re)send the telemetry subscribe (`4100`). On the secure channel the
+    /// device only honours this **after** the auth gate, so call it once
+    /// [`auth_gate`](Self::auth_gate) returns success; telemetry then streams.
+    pub async fn subscribe(&mut self) -> Result<()> {
+        if let Some((cmd, payload)) = self.model.subscribe_command() {
+            if self.is_secure() {
+                self.send_secure(cmd, payload).await?;
+            } else {
+                self.send_command(cmd, payload).await?;
+            }
+            log::debug!("sent telemetry subscribe {cmd:02x?} (secure={})", self.is_secure());
+        }
+        Ok(())
     }
 
     /// Set the LED light-bar brightness/mode.
