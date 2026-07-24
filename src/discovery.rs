@@ -168,19 +168,33 @@ async fn scan_anker(opts: &DiscoverOptions) -> Vec<Discovered> {
 /// JK BMSes that advertise over BLE. `JkBms::scan` filters on the JK serial
 /// service UUID (0xFFE0) — device names are user-customisable via the app, so
 /// a name-based filter would miss renamed units.
+///
+/// RS485-linked packs (name suffix `-00` master, `-01`+ slaves) are collapsed
+/// into one entry per bank via [`jk_bms::group_banks`]: only the master answers
+/// BLE, so only it is connectable; the label notes the pack count.
 async fn scan_jk_ble(opts: &DiscoverOptions) -> Vec<Discovered> {
     #[cfg(feature = "jk-ble")]
     {
         match jk_bms::JkBms::scan(opts.ble_secs).await {
             Ok(devices) => {
-                return devices
+                return jk_bms::group_banks(devices)
                     .into_iter()
-                    .map(|d| Discovered {
-                        id: format!("ble:{}", d.id),
-                        label: d.name.unwrap_or_else(|| "JK BMS".to_string()),
-                        backend: "jk",
-                        class: DeviceClass::Bms,
-                        locator: Locator::JkBle { id: d.id },
+                    .map(|bank| {
+                        let packs = bank.pack_count();
+                        let m = bank.master;
+                        let name = m.name.unwrap_or_else(|| "JK BMS".to_string());
+                        let label = if packs > 1 {
+                            format!("{name} (bank of {packs})")
+                        } else {
+                            name
+                        };
+                        Discovered {
+                            id: format!("ble:{}", m.id),
+                            label,
+                            backend: "jk",
+                            class: DeviceClass::Bms,
+                            locator: Locator::JkBle { id: m.id },
+                        }
                     })
                     .collect();
             }

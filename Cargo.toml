@@ -30,7 +30,7 @@ tokio-stream = { version = "0.1", optional = true }
 
 # --- backend crates (each feature-gated) ---
 anker_solix = { git = "https://github.com/v0l/anker-rs.git", rev = "b7b110946f8d860367f92a162b6e8f33c828248b", version = "0.4", optional = true }
-jk_bms = { version = "0.3.3", optional = true, default-features = false }
+jk_bms = { version = "0.4", optional = true, default-features = false }
 # used only for serial port *enumeration* during discovery
 tokio-serial = { version = "5", optional = true }
 dalybms = { version = "0.1", optional = true, default-features = false, features = ["tokio-serial-async"] }
