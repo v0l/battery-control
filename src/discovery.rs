@@ -62,6 +62,8 @@ enum Locator {
     DalySerial { port: String },
     #[cfg(feature = "pace")]
     PaceSerial { port: String, baud: u32, address: u8 },
+    #[cfg(feature = "seplos")]
+    SeplosSerial { port: String, baud: u32, address: u8 },
     #[cfg(feature = "vedirect")]
     Vedirect { port: String },
     #[cfg(test)]
@@ -146,6 +148,11 @@ impl Discovered {
                 let b = crate::backends::PaceBattery::open_serial(port, *baud, *address).await?;
                 Ok(Box::new(b))
             }
+            #[cfg(feature = "seplos")]
+            Locator::SeplosSerial { port, baud, address } => {
+                let b = crate::backends::SeplosBattery::open_serial(port, *baud, *address).await?;
+                Ok(Box::new(b))
+            }
             #[cfg(feature = "vedirect")]
             Locator::Vedirect { port } => {
                 let b = crate::backends::VedirectMonitor::open(port)?;
@@ -178,6 +185,7 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
         feature = "renogy",
         feature = "daly",
         feature = "pace",
+        feature = "seplos",
         feature = "vedirect"
     ))]
     {
@@ -214,6 +222,7 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
         feature = "renogy",
         feature = "daly",
         feature = "pace",
+        feature = "seplos",
         feature = "vedirect"
     )))]
     let _ = opts;
@@ -355,6 +364,7 @@ async fn scan_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
         feature = "jbd-serial",
         feature = "daly",
         feature = "pace",
+        feature = "seplos",
         feature = "vedirect"
     ))]
     if opts.probe_serial {
@@ -403,6 +413,7 @@ pub fn resolve<'a>(devices: &'a [Discovered], query: &str) -> Result<&'a Discove
     feature = "jbd-serial",
     feature = "daly",
     feature = "pace",
+    feature = "seplos",
     feature = "vedirect"
 ))]
 async fn probe_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
@@ -441,6 +452,7 @@ async fn probe_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
     feature = "jbd-serial",
     feature = "daly",
     feature = "pace",
+    feature = "seplos",
     feature = "vedirect"
 ))]
 fn looks_like_uart(name: &str) -> bool {
@@ -455,6 +467,7 @@ fn looks_like_uart(name: &str) -> bool {
     feature = "jbd-serial",
     feature = "daly",
     feature = "pace",
+    feature = "seplos",
     feature = "vedirect"
 ))]
 async fn probe_one_port(
@@ -534,6 +547,31 @@ async fn probe_one_port(
                 class: DeviceClass::Bms,
                 locator: Locator::DalySerial {
                     port: port.to_string(),
+                },
+            });
+        }
+    }
+
+    // Seplos V3 rack packs: Modbus RTU (function 0x04) at 19200, Modbus
+    // address 0 (BMSStudio "client 1"). Probed before PACE — it reads input
+    // registers, so a PACE holding-register probe would just time out on it.
+    #[cfg(feature = "seplos")]
+    {
+        let probe = async {
+            let mut b = crate::backends::SeplosBattery::open_serial(port, 19200, 0).await.ok()?;
+            b.status().await.ok().map(|_| b)
+        };
+        if let Ok(Some(b)) = tokio::time::timeout(timeout, probe).await {
+            let label = b.info().model.clone().unwrap_or_else(|| "Seplos V3".to_string());
+            return Some(Discovered {
+                id: format!("serial:{port}"),
+                label,
+                backend: "seplos",
+                class: DeviceClass::Bms,
+                locator: Locator::SeplosSerial {
+                    port: port.to_string(),
+                    baud: 19200,
+                    address: 0,
                 },
             });
         }

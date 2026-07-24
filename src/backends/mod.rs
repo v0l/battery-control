@@ -31,6 +31,11 @@ pub mod pace;
 #[cfg(feature = "pace")]
 pub use pace::PaceBattery;
 
+#[cfg(feature = "seplos")]
+pub mod seplos;
+#[cfg(feature = "seplos")]
+pub use seplos::SeplosBattery;
+
 #[cfg(feature = "daly")]
 pub mod daly;
 #[cfg(feature = "daly")]

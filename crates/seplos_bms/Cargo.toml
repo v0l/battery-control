@@ -1,0 +1,32 @@
+[package]
+name = "seplos_bms"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "Seplos BMS V3 protocol (Modbus RTU over RS485)"
+license = "MIT"
+repository = "https://github.com/v0l/battery-control"
+keywords = ["bms", "battery", "seplos", "modbus", "rs485"]
+categories = ["hardware-support"]
+
+[dependencies]
+modbus_lite = { path = "../modbus_lite", version = "0.1" }
+thiserror = "2.0"
+log = "0.4"
+async-trait = "0.1"
+
+tokio-serial = { version = "5", optional = true }
+tokio = { version = "1", features = ["rt", "time", "io-util", "macros"], optional = true }
+
+clap = { version = "4.5", features = ["derive"], optional = true }
+env_logger = { version = "0.11", optional = true }
+
+[features]
+default = ["serial"]
+serial = ["dep:tokio-serial", "dep:tokio"]
+cli = ["serial", "dep:clap", "dep:env_logger", "tokio/rt-multi-thread", "tokio/macros"]
+
+[[bin]]
+name = "seplostool"
+path = "src/bin/seplostool/main.rs"
+required-features = ["cli"]

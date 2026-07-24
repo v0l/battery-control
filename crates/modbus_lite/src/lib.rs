@@ -19,11 +19,12 @@ pub fn crc16(data: &[u8]) -> u16 {
     crc
 }
 
-/// Build a "read holding registers" request (CRC appended little-endian).
-pub fn build_read(unit: u8, start: u16, words: u16) -> [u8; 8] {
+/// Build a Modbus read request for `func` (`0x03` holding / `0x04` input
+/// registers), CRC appended little-endian.
+pub fn build(unit: u8, func: u8, start: u16, words: u16) -> [u8; 8] {
     let mut f = [
         unit,
-        0x03,
+        func,
         (start >> 8) as u8,
         start as u8,
         (words >> 8) as u8,
@@ -35,6 +36,16 @@ pub fn build_read(unit: u8, start: u16, words: u16) -> [u8; 8] {
     f[6] = crc as u8;
     f[7] = (crc >> 8) as u8;
     f
+}
+
+/// Read holding registers (function `0x03`).
+pub fn build_read(unit: u8, start: u16, words: u16) -> [u8; 8] {
+    build(unit, 0x03, start, words)
+}
+
+/// Read input registers (function `0x04`).
+pub fn build_read_input(unit: u8, start: u16, words: u16) -> [u8; 8] {
+    build(unit, 0x04, start, words)
 }
 
 /// Total expected response length once enough of it is buffered to tell.
@@ -67,7 +78,7 @@ pub fn verify(frame: &[u8]) -> Result<&[u8], &'static str> {
     if frame[1] & 0x80 != 0 {
         return Err("modbus exception");
     }
-    if frame[1] != 0x03 {
+    if frame[1] != 0x03 && frame[1] != 0x04 {
         return Err("unexpected function code");
     }
     Ok(&frame[..n - 2])
