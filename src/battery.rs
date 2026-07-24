@@ -51,6 +51,14 @@ pub trait Battery: Send {
         Ok(AuthState::Authed)
     }
 
+    /// Forget any saved pairing/credential for this device, so the next
+    /// [`authenticate`](Self::authenticate) starts the flow fresh. Note this
+    /// clears the *local* record only; a device-side bond (if any) persists
+    /// until reset on the device. Default is a no-op.
+    async fn forget_auth(&mut self) -> Result<()> {
+        Ok(())
+    }
+
     /// A **real-time** stream of incremental [`StatusUpdate`]s, for backends
     /// that push updates over their transport (e.g. Anker SOLIX BLE
     /// notifications). Each item is a single field/port/cell change delivered

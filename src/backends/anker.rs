@@ -405,6 +405,14 @@ impl Battery for AnkerBattery {
         }
     }
 
+    /// Forget the saved bind userId so the next connect re-runs the pairing flow.
+    /// The on-device bond persists (factory-reset the unit to clear it there).
+    async fn forget_auth(&mut self) -> Result<()> {
+        crate::credentials::delete(&self.cred_key());
+        self.authed = false;
+        Ok(())
+    }
+
     async fn disconnect(&mut self) -> Result<()> {
         self.device.disconnect().await.map_err(|e| Error::Transport(e.to_string()))
     }
