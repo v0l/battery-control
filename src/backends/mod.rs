@@ -46,6 +46,11 @@ pub mod jackery;
 #[cfg(feature = "jackery")]
 pub use jackery::JackeryStation;
 
+#[cfg(feature = "ecoflow")]
+pub mod ecoflow;
+#[cfg(feature = "ecoflow")]
+pub use ecoflow::EcoflowStation;
+
 #[cfg(feature = "daly")]
 pub mod daly;
 #[cfg(feature = "daly")]

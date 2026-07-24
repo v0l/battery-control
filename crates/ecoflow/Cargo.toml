@@ -13,6 +13,7 @@ categories = ["hardware-support"]
 thiserror = "2.0"
 log = "0.4"
 async-trait = "0.1"
+ble_util = { path = "../ble_util", version = "0.1" }
 
 # crypto core (deterministic, always available)
 aes = "0.8"
@@ -28,6 +29,15 @@ uuid = { version = "1", optional = true }
 tokio = { version = "1", features = ["rt", "time", "sync", "io-util", "macros"], optional = true }
 futures-util = { version = "0.3", optional = true }
 
+clap = { version = "4.5", features = ["derive"], optional = true }
+env_logger = { version = "0.11", optional = true }
+
 [features]
 default = []
-bluetooth = ["dep:btleplug", "dep:uuid", "dep:tokio", "dep:futures-util"]
+bluetooth = ["dep:btleplug", "dep:uuid", "dep:tokio", "dep:futures-util", "ble_util/gatt"]
+cli = ["bluetooth", "dep:clap", "dep:env_logger", "tokio/rt-multi-thread", "tokio/macros"]
+
+[[bin]]
+name = "ecoflowtool"
+path = "src/bin/ecoflowtool/main.rs"
+required-features = ["cli"]

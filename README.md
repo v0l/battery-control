@@ -24,6 +24,7 @@ use.
 | `seplos` | [`seplos_bms`] Seplos V3 | rack BMS | RS485 (Modbus) | 16 cells, temps, SOC/SOH, capacity | — (read-only) |
 | `bluetti` | [`bluetti`] Bluetti (AC/EB/EP) | power station | BLE (local, Modbus) | SOC, in/out power, ports, cells | AC/DC output |
 | `jackery` | [`jackery`] Jackery Explorer | power station | BLE (local, RC4) | SOC, in/out power, temp, ports | AC/DC/USB/car |
+| `ecoflow` | [`ecoflow`] EcoFlow HD31/Y711 | power station | BLE (local, encrypted) | SOC (experimental) | — |
 | `daly` | [`dalybms`] Daly BMS | cell BMS | serial (async) | SOC, MOSFET, capacity | MOSFETs, SOC |
 | `victron` | [`victron_ble`] Victron | monitor | BLE broadcast | SOC, V/I, temp, alarms | — (read-only) |
 | `vedirect` | [`vedirect`] Victron VE.Direct | monitor | serial (BMV/SmartShunt) | V/I, SOC, TTG | — (read-only) |
@@ -43,6 +44,7 @@ use.
 [`seplos_bms`]: ./crates/seplos_bms
 [`bluetti`]: ./crates/bluetti
 [`jackery`]: ./crates/jackery
+[`ecoflow`]: ./crates/ecoflow
 [`pylontech_rs485`]: ./crates/pylontech_rs485
 [`dalybms`]: https://crates.io/crates/dalybms
 [`victron_ble`]: https://crates.io/crates/victron_ble

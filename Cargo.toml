@@ -42,6 +42,7 @@ pace_bms = { path = "crates/pace_bms", version = "0.1", optional = true, default
 seplos_bms = { path = "crates/seplos_bms", version = "0.1", optional = true, default-features = false }
 bluetti = { path = "crates/bluetti", version = "0.1", optional = true, default-features = false }
 jackery = { path = "crates/jackery", version = "0.1", optional = true, default-features = false }
+ecoflow = { path = "crates/ecoflow", version = "0.1", optional = true, default-features = false }
 pylontech_rs485 = { path = "crates/pylontech_rs485", version = "0.1", optional = true, default-features = false }
 # used only for serial port *enumeration* during discovery
 tokio-serial = { version = "5", optional = true }
@@ -81,6 +82,8 @@ seplos = ["dep:seplos_bms", "seplos_bms/serial", "runtime", "dep:tokio-serial"]
 bluetti = ["dep:bluetti", "bluetti/bluetooth", "runtime"]
 # Jackery power stations (local BLE, key from advertisement).
 jackery = ["dep:jackery", "jackery/bluetooth", "runtime"]
+# EcoFlow encrypted power stations (local BLE; needs account user_id). Experimental.
+ecoflow = ["dep:ecoflow", "ecoflow/bluetooth", "runtime"]
 # Pylontech RS485 console (US2000/US3000) — complements pylontech-can.
 pylontech-rs485 = ["dep:pylontech_rs485", "pylontech_rs485/serial", "runtime", "dep:tokio-serial"]
 daly = ["dep:dalybms", "runtime", "dep:tokio-serial"]
@@ -94,11 +97,11 @@ pylontech-can = []
 can-socket = ["dep:socketcan", "pylontech-can"]
 
 # Convenience: everything that builds on the host (no Linux-only CAN socket).
-full = ["anker", "jk", "jbd", "sok", "renogy", "pace", "seplos", "bluetti", "jackery", "daly", "victron", "vedirect", "pylontech-can", "pylontech-rs485"]
+full = ["anker", "jk", "jbd", "sok", "renogy", "pace", "seplos", "bluetti", "jackery", "ecoflow", "daly", "victron", "vedirect", "pylontech-can", "pylontech-rs485"]
 
 # The `battery` CLI: BLE + serial discovery across backends.
 cli = [
-    "anker", "jk", "jbd", "sok", "renogy", "pace", "seplos", "bluetti", "jackery", "daly", "vedirect", "pylontech-can", "pylontech-rs485",
+    "anker", "jk", "jbd", "sok", "renogy", "pace", "seplos", "bluetti", "jackery", "ecoflow", "daly", "vedirect", "pylontech-can", "pylontech-rs485",
     "dep:clap", "dep:serde_json", "dep:env_logger",
     "tokio/rt-multi-thread", "tokio/macros",
 ]

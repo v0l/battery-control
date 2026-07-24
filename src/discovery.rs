@@ -67,6 +67,8 @@ enum Locator {
         model: u16,
         serial: String,
     },
+    #[cfg(feature = "ecoflow")]
+    EcoflowBle { id: String, serial: String },
     #[cfg(feature = "daly")]
     DalySerial { port: String },
     #[cfg(feature = "pace")]
@@ -165,6 +167,11 @@ impl Discovered {
                 .await?;
                 Ok(Box::new(b))
             }
+            #[cfg(feature = "ecoflow")]
+            Locator::EcoflowBle { id, serial } => {
+                let b = crate::backends::EcoflowStation::connect_bluetooth(id, serial).await?;
+                Ok(Box::new(b))
+            }
             #[cfg(feature = "daly")]
             Locator::DalySerial { port } => {
                 let b = crate::backends::DalyBattery::open_serial(port)?;
@@ -217,6 +224,7 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
         feature = "renogy",
         feature = "bluetti",
         feature = "jackery",
+        feature = "ecoflow",
         feature = "daly",
         feature = "pace",
         feature = "seplos",
@@ -226,12 +234,13 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
     {
         // SOK is scanned before JK: both advertise service ffe0, so listing SOK
         // first lets it claim its packs (by name) before the id-dedup runs.
-        let (anker, sok, renogy, bluetti, jackery, jk, jbd, serial) = tokio::join!(
+        let (anker, sok, renogy, bluetti, jackery, ecoflow, jk, jbd, serial) = tokio::join!(
             scan_anker(opts),
             scan_sok_ble(opts),
             scan_renogy_ble(opts),
             scan_bluetti_ble(opts),
             scan_jackery_ble(opts),
+            scan_ecoflow_ble(opts),
             scan_jk_ble(opts),
             scan_jbd_ble(opts),
             scan_serial(opts)
@@ -242,6 +251,7 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
             .chain(renogy)
             .chain(bluetti)
             .chain(jackery)
+            .chain(ecoflow)
             .chain(jk)
             .chain(jbd)
             .chain(serial)
@@ -261,6 +271,7 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
         feature = "renogy",
         feature = "bluetti",
         feature = "jackery",
+        feature = "ecoflow",
         feature = "daly",
         feature = "pace",
         feature = "seplos",
@@ -452,6 +463,37 @@ async fn scan_jackery_ble(opts: &DiscoverOptions) -> Vec<Discovered> {
                     .collect();
             }
             Err(e) => log::warn!("Jackery BLE scan failed: {e}"),
+        }
+    }
+    let _ = opts;
+    Vec::new()
+}
+
+/// EcoFlow encrypted power stations (HD31/Y711) advertising over BLE (local
+/// only). Auth requires the account user_id at connect time (ECOFLOW_USER_ID).
+async fn scan_ecoflow_ble(opts: &DiscoverOptions) -> Vec<Discovered> {
+    #[cfg(feature = "ecoflow")]
+    {
+        match ecoflow::scan(opts.ble_secs).await {
+            Ok(devices) => {
+                return devices
+                    .into_iter()
+                    .map(|d| Discovered {
+                        id: format!("ble:{}", d.id),
+                        label: d
+                            .name
+                            .clone()
+                            .unwrap_or_else(|| ecoflow::model_name(&d.serial).to_string()),
+                        backend: "ecoflow",
+                        class: DeviceClass::PowerStation,
+                        locator: Locator::EcoflowBle {
+                            id: d.id,
+                            serial: d.serial,
+                        },
+                    })
+                    .collect();
+            }
+            Err(e) => log::warn!("EcoFlow BLE scan failed: {e}"),
         }
     }
     let _ = opts;

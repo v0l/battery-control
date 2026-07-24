@@ -488,11 +488,77 @@ impl Device {
     /// Wire: opcode `4103`, `a1 01 21 <field-id> 02 01 <value>` — field-id
     /// `0xaa` = charge/max, `0xab` = discharge/min (recovered by RE).
     pub async fn set_soc_limits(&mut self, max: u8, min: u8) -> Result<()> {
-        let charge = [0xa1u8, 0x01, 0x21, 0xaa, 0x02, 0x01, max];
-        let discharge = [0xa1u8, 0x01, 0x21, 0xab, 0x02, 0x01, min];
-        self.send_secure_recv([0x41, 0x03], &charge, Duration::from_secs(4)).await?;
-        self.send_secure_recv([0x41, 0x03], &discharge, Duration::from_secs(4)).await?;
+        self.set_setting([0x41, 0x03], 0xaa, max).await?;
+        self.set_setting([0x41, 0x03], 0xab, min).await?;
         Ok(())
+    }
+
+    /// Write a single gen-2 setting: `a1 01 21 <field-id> 02 01 <value>` on the
+    /// given opcode, over the authenticated secure channel. This is the generic
+    /// primitive behind all the named setters below (field-ids recovered by RE;
+    /// see `docs/captures/settings_20260724.md`).
+    pub async fn set_setting(&mut self, opcode: [u8; 2], field_id: u8, value: u8) -> Result<()> {
+        let payload = [0xa1u8, 0x01, 0x21, field_id, 0x02, 0x01, value];
+        self.send_secure_recv(opcode, &payload, Duration::from_secs(4)).await?;
+        Ok(())
+    }
+
+    /// Write a 16-bit-valued setting: `a1 01 21 <field-id> 03 02 <hi> <lo>`
+    /// (big-endian). Used for wider settings (timeouts in minutes, AC charge
+    /// power in watts). Values <= 255 still use the 1-byte form.
+    pub async fn set_setting16(&mut self, opcode: [u8; 2], field_id: u8, value: u16) -> Result<()> {
+        if value <= 0xff {
+            return self.set_setting(opcode, field_id, value as u8).await;
+        }
+        let [hi, lo] = value.to_be_bytes();
+        let payload = [0xa1u8, 0x01, 0x21, field_id, 0x03, 0x02, hi, lo];
+        self.send_secure_recv(opcode, &payload, Duration::from_secs(4)).await?;
+        Ok(())
+    }
+
+    /// Device standby / auto-shutdown timeout in minutes (`4103`/`0xa6`).
+    pub async fn set_standby_timeout(&mut self, minutes: u16) -> Result<()> {
+        self.set_setting16([0x41, 0x03], 0xa6, minutes).await
+    }
+
+    /// Screen (LCD) timeout in minutes (`4103`/`0xa4`).
+    pub async fn set_screen_timeout(&mut self, minutes: u16) -> Result<()> {
+        self.set_setting16([0x41, 0x03], 0xa4, minutes).await
+    }
+
+    /// AC charge (recharge) power limit in watts (`4101`/`0xa4`).
+    pub async fn set_ac_charge_power(&mut self, watts: u16) -> Result<()> {
+        self.set_setting16([0x41, 0x01], 0xa4, watts).await
+    }
+
+    /// LCD backlight brightness level (opcode `4103`, field `0xa3`).
+    pub async fn set_brightness(&mut self, level: u8) -> Result<()> {
+        self.set_setting([0x41, 0x03], 0xa3, level).await
+    }
+
+    /// Output-port memory (remember on/off across power cycles); `4103`/`0xa8`.
+    pub async fn set_port_memory(&mut self, on: bool) -> Result<()> {
+        self.set_setting([0x41, 0x03], 0xa8, on as u8).await
+    }
+
+    /// AC output frequency in Hz (50 or 60); opcode `4101`, field `0xa5`.
+    pub async fn set_ac_frequency(&mut self, hz: u8) -> Result<()> {
+        self.set_setting([0x41, 0x01], 0xa5, hz).await
+    }
+
+    /// Smart AC output mode on/off; opcode `4101`, field `0xa6`.
+    pub async fn set_smart_ac(&mut self, on: bool) -> Result<()> {
+        self.set_setting([0x41, 0x01], 0xa6, on as u8).await
+    }
+
+    /// Car-charger energy-saving mode on/off; opcode `4102`, field `0xa4`.
+    pub async fn set_car_saving(&mut self, on: bool) -> Result<()> {
+        self.set_setting([0x41, 0x02], 0xa4, on as u8).await
+    }
+
+    /// Clock screensaver on/off; opcode `4091`, field `0xa2`.
+    pub async fn set_screensaver(&mut self, on: bool) -> Result<()> {
+        self.set_setting([0x40, 0x91], 0xa2, on as u8).await
     }
 
     /// Send a **session-key GCM** frame on the *negotiation* channel (pattern

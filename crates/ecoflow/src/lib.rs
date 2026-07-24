@@ -15,10 +15,23 @@
 //! (`HD31`) and Delta Pro Ultra (`Y711`). Auth also needs the account
 //! `user_id` (one-time, extracted from the app/site); operation is fully local.
 
+pub mod bms;
 pub mod crc;
 pub mod crypto;
+pub mod error;
 pub mod packet;
+pub mod protobuf;
 pub mod secp160r1;
+pub mod session;
+pub mod transport;
 
+pub use bms::Ecoflow;
+pub use error::{Error, Result};
 pub use packet::{enc_packet, split_enc_frames, FrameType, Packet};
+pub use protobuf::Telemetry;
 pub use secp160r1::KeyPair;
+pub use session::{Handshake, HandshakeError, Stage};
+pub use transport::model_name;
+
+#[cfg(feature = "bluetooth")]
+pub use transport::{scan, BtDevice};
