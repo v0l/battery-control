@@ -50,6 +50,10 @@ enum Locator {
     JkSerial { port: String, baud: u32 },
     #[cfg(feature = "jk-ble")]
     JkBle { id: String },
+    #[cfg(feature = "jbd-serial")]
+    JbdSerial { port: String, baud: u32 },
+    #[cfg(feature = "jbd-ble")]
+    JbdBle { id: String },
     #[cfg(feature = "daly")]
     DalySerial { port: String },
     #[cfg(test)]
@@ -104,6 +108,16 @@ impl Discovered {
                 let b = crate::backends::JkBattery::connect_bluetooth(id).await?;
                 Ok(Box::new(b))
             }
+            #[cfg(feature = "jbd-serial")]
+            Locator::JbdSerial { port, baud } => {
+                let b = crate::backends::JbdBattery::open_serial(port, *baud).await?;
+                Ok(Box::new(b))
+            }
+            #[cfg(feature = "jbd-ble")]
+            Locator::JbdBle { id } => {
+                let b = crate::backends::JbdBattery::connect_bluetooth(id).await?;
+                Ok(Box::new(b))
+            }
             #[cfg(feature = "daly")]
             Locator::DalySerial { port } => {
                 let b = crate::backends::DalyBattery::open_serial(port)?;
@@ -126,17 +140,35 @@ pub async fn discover(opts: &DiscoverOptions) -> Result<Vec<Discovered>> {
     #[allow(unused_mut)]
     let mut found: Vec<Discovered> = Vec::new();
 
-    #[cfg(any(feature = "anker", feature = "jk-ble", feature = "jk-serial", feature = "daly"))]
+    #[cfg(any(
+        feature = "anker",
+        feature = "jk-ble",
+        feature = "jk-serial",
+        feature = "jbd-ble",
+        feature = "jbd-serial",
+        feature = "daly"
+    ))]
     {
-        let (anker, jk, serial) =
-            tokio::join!(scan_anker(opts), scan_jk_ble(opts), scan_serial(opts));
-        for d in anker.into_iter().chain(jk).chain(serial) {
+        let (anker, jk, jbd, serial) = tokio::join!(
+            scan_anker(opts),
+            scan_jk_ble(opts),
+            scan_jbd_ble(opts),
+            scan_serial(opts)
+        );
+        for d in anker.into_iter().chain(jk).chain(jbd).chain(serial) {
             if !found.iter().any(|x| x.id == d.id) {
                 found.push(d);
             }
         }
     }
-    #[cfg(not(any(feature = "anker", feature = "jk-ble", feature = "jk-serial", feature = "daly")))]
+    #[cfg(not(any(
+        feature = "anker",
+        feature = "jk-ble",
+        feature = "jk-serial",
+        feature = "jbd-ble",
+        feature = "jbd-serial",
+        feature = "daly"
+    )))]
     let _ = opts;
 
     Ok(found)
@@ -195,8 +227,33 @@ async fn scan_jk_ble(opts: &DiscoverOptions) -> Vec<Discovered> {
     Vec::new()
 }
 
+/// JBD / Xiaoxiang / Overkill BMSes advertising over BLE. `jbd_bms::scan`
+/// filters on the JBD service UUID (0xFF00); names are user-customisable.
+async fn scan_jbd_ble(opts: &DiscoverOptions) -> Vec<Discovered> {
+    #[cfg(feature = "jbd-ble")]
+    {
+        match jbd_bms::scan(opts.ble_secs).await {
+            Ok(devices) => {
+                return devices
+                    .into_iter()
+                    .map(|d| Discovered {
+                        id: format!("ble:{}", d.id),
+                        label: d.name.unwrap_or_else(|| "JBD BMS".to_string()),
+                        backend: "jbd",
+                        class: DeviceClass::Bms,
+                        locator: Locator::JbdBle { id: d.id },
+                    })
+                    .collect();
+            }
+            Err(e) => log::warn!("JBD BLE scan failed: {e}"),
+        }
+    }
+    let _ = opts;
+    Vec::new()
+}
+
 async fn scan_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
-    #[cfg(any(feature = "jk-serial", feature = "daly"))]
+    #[cfg(any(feature = "jk-serial", feature = "jbd-serial", feature = "daly"))]
     if opts.probe_serial {
         return probe_serial(opts).await;
     }
@@ -238,7 +295,7 @@ pub fn resolve<'a>(devices: &'a [Discovered], query: &str) -> Result<&'a Discove
 
 // --- Serial probing ----------------------------------------------------------
 
-#[cfg(any(feature = "jk-serial", feature = "daly"))]
+#[cfg(any(feature = "jk-serial", feature = "jbd-serial", feature = "daly"))]
 async fn probe_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
     use std::time::Duration;
 
@@ -270,7 +327,7 @@ async fn probe_serial(opts: &DiscoverOptions) -> Vec<Discovered> {
 /// would match every macOS Bluetooth serial alias (headsets, phones, ...) and
 /// `ttys` matches pseudo-terminals — probing those wastes ~10s each and can
 /// never find a BMS.
-#[cfg(any(feature = "jk-serial", feature = "daly"))]
+#[cfg(any(feature = "jk-serial", feature = "jbd-serial", feature = "daly"))]
 fn looks_like_uart(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
     ["ttyusb", "ttyacm", "usbserial", "usbmodem", "slab", "wchusbserial"]
@@ -278,7 +335,7 @@ fn looks_like_uart(name: &str) -> bool {
         .any(|p| n.contains(p))
 }
 
-#[cfg(any(feature = "jk-serial", feature = "daly"))]
+#[cfg(any(feature = "jk-serial", feature = "jbd-serial", feature = "daly"))]
 async fn probe_one_port(
     port: &str,
     opts: &DiscoverOptions,
@@ -304,6 +361,31 @@ async fn probe_one_port(
                 backend: "jk",
                 class: DeviceClass::Bms,
                 locator: Locator::JkSerial {
+                    port: port.to_string(),
+                    baud,
+                },
+            });
+        }
+    }
+
+    #[cfg(feature = "jbd-serial")]
+    for &baud in &opts.serial_bauds {
+        let probe = async {
+            let mut b = crate::backends::JbdBattery::open_serial(port, baud).await.ok()?;
+            b.status().await.ok().map(|_| b)
+        };
+        if let Ok(Some(b)) = tokio::time::timeout(timeout, probe).await {
+            let label = b
+                .info()
+                .model
+                .clone()
+                .unwrap_or_else(|| "JBD BMS".to_string());
+            return Some(Discovered {
+                id: format!("serial:{port}"),
+                label,
+                backend: "jbd",
+                class: DeviceClass::Bms,
+                locator: Locator::JbdSerial {
                     port: port.to_string(),
                     baud,
                 },

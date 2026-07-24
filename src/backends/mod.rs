@@ -11,6 +11,11 @@ pub mod jk;
 #[cfg(any(feature = "jk-ble", feature = "jk-serial"))]
 pub use jk::JkBattery;
 
+#[cfg(any(feature = "jbd-ble", feature = "jbd-serial"))]
+pub mod jbd;
+#[cfg(any(feature = "jbd-ble", feature = "jbd-serial"))]
+pub use jbd::JbdBattery;
+
 #[cfg(feature = "daly")]
 pub mod daly;
 #[cfg(feature = "daly")]
