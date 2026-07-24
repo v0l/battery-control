@@ -10,13 +10,32 @@ use async_trait::async_trait;
 use jk_bms::{error_bitmask_to_strings, JkBms, JkSettings, MybmmPack};
 use std::time::Duration;
 
+/// State of the settings cache: fetched once, invalidated by writes.
+enum SettingsCache {
+    /// Not fetched yet (initial state, or a write invalidated it).
+    Stale,
+    /// Device answered with a settings frame.
+    Loaded(Vec<Setting>),
+    /// Device never sent a settings frame (e.g. JK-PB fw15.x answers the
+    /// settings request with a device-info frame — syssi/esphome-jk-bms#891).
+    /// Don't burn ~20s retrying on every read.
+    Unavailable,
+}
+
+impl SettingsCache {
+    fn as_vec(&self) -> Vec<Setting> {
+        match self {
+            SettingsCache::Loaded(v) => v.clone(),
+            _ => Vec::new(),
+        }
+    }
+}
+
 /// A JK BMS exposed through the unified [`Battery`] trait.
 pub struct JkBattery {
     bms: JkBms,
     info: DeviceInfo,
-    /// Cached device settings, fetched with the first status read and
-    /// invalidated by setting writes. Attached to every [`BatteryStatus`].
-    settings: Vec<Setting>,
+    settings: SettingsCache,
 }
 
 impl JkBattery {
@@ -28,7 +47,22 @@ impl JkBattery {
         Self {
             bms,
             info,
-            settings: Vec::new(),
+            settings: SettingsCache::Stale,
+        }
+    }
+
+    /// Fetch settings if the cache is stale. One attempt only: firmware that
+    /// doesn't answer (JK-PB fw15.x) is marked unavailable so reads stay fast.
+    async fn load_settings(&mut self) {
+        if !matches!(self.settings, SettingsCache::Stale) {
+            return;
+        }
+        match self.bms.read_settings().await {
+            Ok(s) => self.settings = SettingsCache::Loaded(map_settings(&s)),
+            Err(e) => {
+                log::warn!("jk: settings unavailable (firmware may not support the settings frame): {e}");
+                self.settings = SettingsCache::Unavailable;
+            }
         }
     }
 
@@ -200,22 +234,18 @@ impl Battery for JkBattery {
     }
 
     async fn status(&mut self) -> Result<BatteryStatus> {
-        // First read (or after a setting write): also wait for the settings
-        // frame and cache the normalized settings.
-        if self.settings.is_empty() {
-            match self.bms.read_settings().await {
-                Ok(s) => self.settings = map_settings(&s),
-                // Settings are additive; live data still flows without them.
-                Err(e) => log::warn!("jk: settings read failed: {e}"),
-            }
-        } else {
+        // First read (or after a setting write): also try for the settings
+        // frame. `read_settings` performs a full live read too, so only fall
+        // back to a plain read when the cache is already resolved.
+        self.load_settings().await;
+        if matches!(self.settings, SettingsCache::Unavailable) {
             self.bms
                 .read()
                 .await
                 .map_err(|e| Error::Transport(e.to_string()))?;
         }
         let mut status = to_status(self.bms.pack());
-        status.settings = self.settings.clone();
+        status.settings = self.settings.as_vec();
         self.refresh_info();
         Ok(status)
     }
@@ -247,17 +277,13 @@ impl Battery for JkBattery {
                     if ended {
                         return None;
                     }
-                    // A setting write cleared the cache: refresh it in-stream
-                    // so subscribers see the device-confirmed values.
-                    if this.settings.is_empty() {
-                        if let Ok(s) = this.bms.read_settings().await {
-                            this.settings = map_settings(&s);
-                        }
-                    }
+                    // A setting write marked the cache stale: refresh it
+                    // in-stream so subscribers see device-confirmed values.
+                    this.load_settings().await;
                     match this.bms.next_update(Duration::from_secs(30)).await {
                         Ok(pack) => {
                             let mut status = to_status(pack);
-                            status.settings = this.settings.clone();
+                            status.settings = this.settings.as_vec();
                             this.refresh_info();
                             queue.extend(status.diff(prev.as_ref()));
                             prev = Some(status);
@@ -304,8 +330,10 @@ impl Battery for JkBattery {
                 // Toggles of auxiliary setting switches live in the settings
                 // cache; refresh it. The three main switches come from live
                 // frames, no re-read needed.
-                if !matches!(id.as_str(), "charging" | "discharging" | "balancer") {
-                    self.settings.clear();
+                if !matches!(id.as_str(), "charging" | "discharging" | "balancer")
+                    && !matches!(self.settings, SettingsCache::Unavailable)
+                {
+                    self.settings = SettingsCache::Stale;
                 }
                 Ok(())
             }
@@ -317,7 +345,9 @@ impl Battery for JkBattery {
                     .map_err(|e| Error::Transport(e.to_string()))?;
                 // Re-read settings on the next status so the cache reflects
                 // what the device actually accepted.
-                self.settings.clear();
+                if !matches!(self.settings, SettingsCache::Unavailable) {
+                    self.settings = SettingsCache::Stale;
+                }
                 Ok(())
             }
         }
