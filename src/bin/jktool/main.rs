@@ -92,30 +92,11 @@ async fn main() {
                 if devices.is_empty() {
                     println!("No Bluetooth devices found.");
                 } else {
-                    let banks = jk_bms::group_banks(devices);
-                    println!("Found {} device(s):", banks.len());
-                    let fmt_rssi = |r: Option<i16>| {
-                        r.map(|r| format!("{} dBm", r)).unwrap_or_else(|| "N/A".to_string())
-                    };
-                    for bank in &banks {
-                        let m = &bank.master;
-                        let name = m.name.as_deref().unwrap_or("Unknown");
-                        let tag = if bank.pack_count() > 1 {
-                            format!(" [bank of {}]", bank.pack_count())
-                        } else {
-                            String::new()
-                        };
-                        println!("  {:30} {:38} RSSI: {}{}", name, m.id, fmt_rssi(m.rssi), tag);
-                        for s in &bank.slaves {
-                            let sname = s.name.as_deref().unwrap_or("Unknown");
-                            let addr = s.address.map(|a| format!("#{a:02}")).unwrap_or_default();
-                            println!(
-                                "    └ slave {:24} {:38} RSSI: {} (read via master)",
-                                format!("{sname} {addr}"),
-                                s.id,
-                                fmt_rssi(s.rssi)
-                            );
-                        }
+                    println!("Found {} device(s):", devices.len());
+                    for dev in &devices {
+                        let name = dev.name.as_deref().unwrap_or("Unknown");
+                        let rssi = dev.rssi.map(|r| format!("{} dBm", r)).unwrap_or_else(|| "N/A".to_string());
+                        println!("  {:30} {:38} RSSI: {}", name, dev.id, rssi);
                     }
                 }
             }

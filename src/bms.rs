@@ -138,49 +138,6 @@ pub async fn read_data(
     Ok(())
 }
 
-/// A bank of RS485-linked JK-PB packs discovered over BLE, presented as one
-/// logical battery. Only the [`master`](Self::master) answers BLE; slaves are
-/// read through it.
-#[derive(Debug, Clone)]
-pub struct JkBank {
-    /// The master pack (address 00) — connect to this.
-    pub master: crate::BtDevice,
-    /// Slave packs (address 01+) on the same bank, ordered by address.
-    pub slaves: Vec<crate::BtDevice>,
-}
-
-impl JkBank {
-    /// Number of packs in the bank (master + slaves).
-    pub fn pack_count(&self) -> usize {
-        1 + self.slaves.len()
-    }
-}
-
-/// Group discovered BLE devices into banks.
-///
-/// Slaves (`-01`+) are attached to a master (`-00`) **only when exactly one
-/// master is present** — with multiple banks in range the `-NN` suffix alone
-/// can't say which slave belongs to which master, so each device is returned
-/// as its own single-pack bank. Masters (and address-less standalone units)
-/// always become banks; orphan slaves (no master in range) are surfaced as
-/// their own bank so they remain visible.
-pub fn group_banks(devices: Vec<crate::BtDevice>) -> Vec<JkBank> {
-    let (masters, slaves): (Vec<_>, Vec<_>) = devices.into_iter().partition(|d| d.is_master());
-
-    if masters.len() == 1 {
-        let mut slaves = slaves;
-        slaves.sort_by_key(|d| d.address);
-        return vec![JkBank { master: masters.into_iter().next().unwrap(), slaves }];
-    }
-
-    // Ambiguous (or no) master: everything is its own single-pack bank.
-    masters
-        .into_iter()
-        .chain(slaves)
-        .map(|master| JkBank { master, slaves: Vec::new() })
-        .collect()
-}
-
 /// A connected JK BMS.
 pub struct JkBms {
     session: JkSession,

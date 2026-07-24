@@ -10,7 +10,7 @@ pub mod transport;
 pub use error::{JkError, Result};
 pub use pack::{MybmmPack, ProtocolVersion, JkSettings};
 pub use protocol::{getdata, get_info_command, get_cell_info_command, get_settings_command, get_short, get_signed_short, crc, error_bitmask_to_strings, ERROR_DESCRIPTIONS, FrameAssembler, ParseFlags, get_16bit, get_32bit, ieee_float, SettingDef, SETTINGS, get_setting_register, get_setting_def, get_setting_by_register, build_write_frame, build_setting_write_frame, CAN_FRAME_SIZE, CAN_CMD_INFO, CAN_CMD_CELL_INFO, CAN_CMD_WRITE_REG, build_can_command, get_can_info_command, get_can_cell_info_command, build_can_write_frame, build_can_setting_write_frame};
-pub use bms::{group_banks, read_data, JkBank, JkBms};
+pub use bms::{read_data, JkBms};
 pub use session::JkSession;
 pub use module::{MybmmModule, Transport, jk_init, jk_new, jk_open, jk_read, jk_close, jk_control, MYBMM_CHARGE_CONTROL, MYBMM_DISCHARGE_CONTROL, MYBMM_BALANCE_CONTROL};
 pub use jk_info::{JkInfo, parse_info_strings};
@@ -132,27 +132,6 @@ mod tests {
         assert_eq!(parse_pack_address("AliBattery-01"), Some(1));
         assert_eq!(parse_pack_address("JK-B2A16S"), None); // suffix not 2 digits
         assert_eq!(parse_pack_address("NoSuffix"), None);
-    }
-
-    #[test]
-    fn test_group_banks() {
-        let dev = |name: &str, id: &str| BtDevice {
-            address: parse_pack_address(name),
-            name: Some(name.into()),
-            id: id.into(),
-            rssi: None,
-        };
-        // One master + one slave -> a single 2-pack bank.
-        let banks = group_banks(vec![dev("REPT280-00", "a"), dev("AliBattery-01", "b")]);
-        assert_eq!(banks.len(), 1);
-        assert_eq!(banks[0].pack_count(), 2);
-        assert_eq!(banks[0].master.id, "a");
-        assert_eq!(banks[0].slaves[0].id, "b");
-
-        // Two masters -> ambiguous, each stands alone.
-        let banks = group_banks(vec![dev("X-00", "a"), dev("Y-00", "b"), dev("Z-01", "c")]);
-        assert_eq!(banks.len(), 3);
-        assert!(banks.iter().all(|b| b.pack_count() == 1));
     }
 
     #[tokio::test]
