@@ -71,6 +71,11 @@ pub mod pylontech_rs485;
 #[cfg(feature = "pylontech-rs485")]
 pub use pylontech_rs485::PylontechConsole;
 
+#[cfg(feature = "pylontech-cli")]
+pub mod pylontech_cli;
+#[cfg(feature = "pylontech-cli")]
+pub use pylontech_cli::PylontechCli;
+
 #[cfg(feature = "pylontech-can")]
 pub mod pylontech;
 #[cfg(feature = "pylontech-can")]

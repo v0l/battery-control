@@ -86,6 +86,9 @@ jackery = ["dep:jackery", "jackery/bluetooth", "runtime"]
 ecoflow = ["dep:ecoflow", "ecoflow/bluetooth", "runtime"]
 # Pylontech RS485 console (US2000/US3000) — complements pylontech-can.
 pylontech-rs485 = ["dep:pylontech_rs485", "pylontech_rs485/serial", "runtime", "dep:tokio-serial"]
+# Pylontech C-series text console (RJ45 Console port, RS232): the only way into
+# US2000C units, which reject the `~20...` frame protocol.
+pylontech-cli = ["runtime", "dep:tokio-serial", "tokio/io-util"]
 daly = ["dep:dalybms", "runtime", "dep:tokio-serial"]
 victron = ["dep:victron_ble", "runtime", "dep:tokio-stream"]
 vedirect = ["dep:vedirect", "runtime", "dep:tokio-serial"]
@@ -97,7 +100,7 @@ pylontech-can = []
 can-socket = ["dep:socketcan", "pylontech-can"]
 
 # Convenience: everything that builds on the host (no Linux-only CAN socket).
-full = ["anker", "jk", "jbd", "sok", "renogy", "pace", "seplos", "bluetti", "jackery", "ecoflow", "daly", "victron", "vedirect", "pylontech-can", "pylontech-rs485"]
+full = ["anker", "jk", "jbd", "sok", "renogy", "pace", "seplos", "bluetti", "jackery", "ecoflow", "daly", "victron", "vedirect", "pylontech-can", "pylontech-rs485", "pylontech-cli"]
 
 # The `battery` CLI: BLE + serial discovery across backends.
 cli = [
