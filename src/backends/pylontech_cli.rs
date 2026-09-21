@@ -20,7 +20,19 @@ pub struct PylontechCli {
     port: SerialStream,
     info: DeviceInfo,
     identified: bool,
+    lifetime: Option<Lifetime>,
+    lifetime_read: Option<std::time::Instant>,
 }
+
+/// Counters that only move over hours, so they are re-read on an interval
+/// rather than on every status poll.
+#[derive(Debug, Clone, Copy)]
+struct Lifetime {
+    soh: Option<f64>,
+    cycles: Option<f64>,
+}
+
+const LIFETIME_REFRESH: Duration = Duration::from_secs(300);
 
 #[derive(Debug, Default, Clone)]
 pub struct CellRow {
@@ -57,6 +69,8 @@ impl PylontechCli {
                 ..Default::default()
             },
             identified: false,
+            lifetime: None,
+            lifetime_read: None,
         })
     }
 
@@ -185,22 +199,32 @@ impl Battery for PylontechCli {
         }
         let frame = self.bat().await?;
         let mut status = to_status(&frame);
-        if let Ok(stat) = self.command("stat").await {
+        let stale = self
+            .lifetime_read
+            .map(|t| t.elapsed() >= LIFETIME_REFRESH)
+            .unwrap_or(true);
+        if stale && let Ok(stat) = self.command("stat").await {
+            let mut life = Lifetime {
+                soh: None,
+                cycles: None,
+            };
             for line in stat.lines() {
                 let Some((k, v)) = line.split_once(':') else {
                     continue;
                 };
                 let v = v.trim().parse::<f64>().ok();
                 match k.trim() {
-                    "SOH" => {
-                        status.set(Reading::Soh, v);
-                    }
-                    "CYCLE Times" => {
-                        status.set(Reading::Cycles, v);
-                    }
+                    "SOH" => life.soh = v,
+                    "CYCLE Times" => life.cycles = v,
                     _ => {}
                 }
             }
+            self.lifetime = Some(life);
+            self.lifetime_read = Some(std::time::Instant::now());
+        }
+        if let Some(life) = self.lifetime {
+            status.set(Reading::Soh, life.soh);
+            status.set(Reading::Cycles, life.cycles);
         }
         Ok(status)
     }
