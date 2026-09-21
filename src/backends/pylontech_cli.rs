@@ -44,6 +44,8 @@ pub struct CellRow {
 #[derive(Debug, Default, Clone)]
 pub struct BatFrame {
     pub cells: Vec<CellRow>,
+    /// Anything the BMS flagged as other than normal, per cell and column.
+    pub alarms: Vec<String>,
     pub current_ma: i32,
     pub temp_milli_c: i32,
     pub soc_percent: u8,
@@ -158,6 +160,23 @@ pub fn parse_bat(text: &str) -> Option<BatFrame> {
         let (Ok(_idx), Ok(mv)) = (col[0].parse::<u8>(), col[1].parse::<u16>()) else {
             continue;
         };
+        // Columns 4..8 are the base, voltage, current and temperature states.
+        // Anything but "Normal" is the BMS telling you something.
+        for (label, state) in [
+            ("state", col[4]),
+            ("voltage", col[5]),
+            ("current", col[6]),
+            ("temperature", col[7]),
+        ] {
+            let normal = state.eq_ignore_ascii_case("normal")
+                || state.eq_ignore_ascii_case("charge")
+                || state.eq_ignore_ascii_case("dischg")
+                || state.eq_ignore_ascii_case("idle")
+                || state.eq_ignore_ascii_case("absent");
+            if !normal {
+                f.alarms.push(format!("cell {} {label}: {state}", f.cells.len()));
+            }
+        }
         f.cells.push(CellRow {
             millivolts: mv,
             balancing: col[col.len() - 1] == "Y",
@@ -186,6 +205,7 @@ fn to_status(f: &BatFrame) -> BatteryStatus {
         f.temp_milli_c as f64 / 1000.0,
         Unit::Celsius,
     );
+    s.alarms = f.alarms.clone();
     s.cells = f
         .cells
         .iter()
@@ -271,6 +291,17 @@ mod tests {
         assert_eq!(rated_ah("48V/50AH"), Some(50.0));
         assert_eq!(rated_ah("24V/100Ah"), Some(100.0));
         assert_eq!(rated_ah("48V"), None);
+    }
+
+    #[test]
+    fn flags_any_cell_state_that_is_not_normal() {
+        let bad = SAMPLE.replace(
+            "0        3331     5852     23000    Charge       Normal       Normal       Normal",
+            "0        3331     5852     23000    Charge       High         Normal       Normal",
+        );
+        let f = parse_bat(&bad).expect("frame");
+        assert_eq!(f.alarms, vec!["cell 0 voltage: High"]);
+        assert!(parse_bat(SAMPLE).unwrap().alarms.is_empty());
     }
 
     #[test]
