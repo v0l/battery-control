@@ -20,6 +20,7 @@ pub struct PylontechCli {
     port: SerialStream,
     info: DeviceInfo,
     identified: bool,
+    rated_ah: Option<f64>,
     lifetime: Option<Lifetime>,
     lifetime_read: Option<std::time::Instant>,
 }
@@ -69,6 +70,7 @@ impl PylontechCli {
                 ..Default::default()
             },
             identified: false,
+            rated_ah: None,
             lifetime: None,
             lifetime_read: None,
         })
@@ -117,8 +119,11 @@ impl PylontechCli {
             match k {
                 "Barcode" => self.info.serial = Some(v),
                 "Device name" => self.info.model = Some(v),
-                "Specification" if self.info.model.is_none() => {
-                    self.info.model = Some(format!("Pylontech {v}"))
+                "Specification" => {
+                    self.rated_ah = rated_ah(&v);
+                    if self.info.model.is_none() {
+                        self.info.model = Some(format!("Pylontech {v}"));
+                    }
                 }
                 "Main Soft version" => self.info.firmware = Some(v),
                 "Board version" => self.info.hardware = Some(v),
@@ -129,6 +134,18 @@ impl PylontechCli {
         self.identified = true;
         Ok(())
     }
+}
+
+/// Pull the amp-hour rating out of a specification string like `48V/50AH`.
+fn rated_ah(spec: &str) -> Option<f64> {
+    let up = spec.to_ascii_uppercase();
+    let ah = up.find("AH")?;
+    let digits: String = up[..ah]
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    digits.chars().rev().collect::<String>().parse().ok()
 }
 
 pub fn parse_bat(text: &str) -> Option<BatFrame> {
@@ -226,6 +243,7 @@ impl Battery for PylontechCli {
             status.set(Reading::Soh, life.soh);
             status.set(Reading::Cycles, life.cycles);
         }
+        status.set(Reading::CapacityFullAh, self.rated_ah);
         Ok(status)
     }
 }
@@ -246,6 +264,13 @@ mod tests {
         assert_eq!(f.current_ma, 5852);
         assert_eq!(f.soc_percent, 14);
         assert_eq!(f.state, "Charge");
+    }
+
+    #[test]
+    fn reads_rating_from_specification() {
+        assert_eq!(rated_ah("48V/50AH"), Some(50.0));
+        assert_eq!(rated_ah("24V/100Ah"), Some(100.0));
+        assert_eq!(rated_ah("48V"), None);
     }
 
     #[test]
