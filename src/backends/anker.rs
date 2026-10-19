@@ -29,6 +29,9 @@ pub struct AnkerBattery {
     soc_min: Option<u8>,
     /// Whether the secure auth gate has passed this session.
     authed: bool,
+    /// Telemetry re-subscribes still owed after a write; the stream sends them
+    /// as it goes so a write returns at once.
+    resubscribe: u8,
 }
 
 impl AnkerBattery {
@@ -42,7 +45,7 @@ impl AnkerBattery {
             model: Some(device.name().to_string()),
             ..Default::default()
         };
-        Ok(Self { device, info, soc_max: None, soc_min: None, authed: false })
+        Ok(Self { device, info, soc_max: None, soc_min: None, authed: false, resubscribe: 0 })
     }
 
     /// Wrap an already-connected [`anker_solix::Device`].
@@ -52,7 +55,7 @@ impl AnkerBattery {
             model: Some(device.name().to_string()),
             ..Default::default()
         };
-        Self { device, info, soc_max: None, soc_min: None, authed: false }
+        Self { device, info, soc_max: None, soc_min: None, authed: false, resubscribe: 0 }
     }
 
     /// Whether this is a gen-2 (secure-channel) device.
@@ -163,8 +166,7 @@ impl AnkerBattery {
     /// stream. Give it a moment to settle, then re-subscribe so telemetry (and
     /// subsequent writes) keep flowing.
     async fn settle_after_write(&mut self) {
-        tokio::time::sleep(Duration::from_millis(400)).await;
-        let _ = self.device.subscribe().await;
+        self.resubscribe = 3;
     }
 }
 
@@ -385,6 +387,18 @@ impl Battery for AnkerBattery {
         match cmd {
             Command::Toggle { id, on } => {
                 match id.as_str() {
+                    "ac" | "dc" if self.is_gen2() => {
+                        self.ensure_authed().await?;
+                        let model = self.device.model();
+                        let opcode = if id == "ac" {
+                            model.cmd_ac_output()
+                        } else {
+                            model.cmd_dc_output()
+                        };
+                        let r = self.device.set_setting(opcode, 0xa2, on as u8).await;
+                        self.settle_after_write().await;
+                        r
+                    }
                     "ac" => self.device.set_ac(on).await,
                     "dc" => self.device.set_dc(on).await,
                     // Light bar / display are gen-1 only; the device returns
@@ -465,7 +479,12 @@ impl Battery for AnkerBattery {
                     if ended {
                         return None;
                     }
-                    match this.device.next_telemetry(Duration::from_secs(30)).await {
+                    let wait = if this.resubscribe > 0 {
+                        Duration::from_millis(700)
+                    } else {
+                        Duration::from_secs(30)
+                    };
+                    match this.device.next_telemetry(wait).await {
                         Ok(t) => {
                             if this.info.serial.is_none() {
                                 this.info.serial = t.serial_number.clone();
@@ -478,6 +497,10 @@ impl Battery for AnkerBattery {
                         }
                         // Surface the error once, then end the stream so callers
                         // can reconnect rather than spin on a dead channel.
+                        Err(anker_solix::AnkerError::ResponseTimeout) if this.resubscribe > 0 => {
+                            this.resubscribe -= 1;
+                            let _ = this.device.subscribe().await;
+                        }
                         Err(e) => {
                             return Some((
                                 Err(Error::Transport(e.to_string())),
