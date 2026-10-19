@@ -2,6 +2,10 @@
 members = ["crates/*"]
 resolver = "2"
 
+[profile.release]
+opt-level = 3
+lto = "thin"
+
 [package]
 name = "battery_control"
 version = "0.1.0"

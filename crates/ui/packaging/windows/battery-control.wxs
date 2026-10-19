@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+      Name="Battery Control"
+      Manufacturer="v0l"
+      Version="$(var.Version)"
+      UpgradeCode="86da9f43-0500-4d79-95b9-5341bbdf6a32"
+      Scope="perMachine"
+      Compressed="yes">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Battery Control is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="AppIcon" SourceFile="crates\ui\packaging\windows\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/v0l/battery-control" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Battery Control">
+        <Component Id="AppExe" Guid="8cd4e8c7-0244-42cd-8fe9-5ff7b74832fc">
+          <File Id="BatteryControlExe" Source="$(var.BinDir)\battery-control.exe" KeyPath="yes" />
+        </Component>
+        <Component Id="AppDocs" Guid="b7ecb165-456d-4431-85ed-235c433958ef">
+          <File Id="ReadmeMd" Source="README.md" KeyPath="yes" />
+          <File Id="LicenseTxt" Source="LICENSE" Name="LICENSE.txt" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="AppShortcut" Guid="ffa854ce-05d2-4c6e-99ba-40acecec8893">
+        <Shortcut Id="BatteryControlShortcut" Icon="AppIcon" Name="Battery Control" Target="[#BatteryControlExe]" WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKLM" Key="Software\v0l\BatteryControl" Name="shortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="Battery Control" Level="1">
+      <ComponentRef Id="AppExe" />
+      <ComponentRef Id="AppDocs" />
+      <ComponentRef Id="AppShortcut" />
+    </Feature>
+  </Package>
+</Wix>

@@ -1,0 +1,30 @@
+[package]
+name = "battery-control-ui"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.92"
+description = "A window for monitoring and controlling batteries, BMSes and power stations"
+license = "MIT"
+repository = "https://github.com/v0l/battery-control"
+publish = false
+
+[[bin]]
+name = "battery-control"
+path = "src/main.rs"
+
+[dependencies]
+async-trait = "0.1"
+battery_control = { path = "../..", features = ["full"] }
+eframe = { version = "0.35", default-features = false, features = [
+    "default_fonts",
+    "glow",
+    "wayland",
+    "x11",
+] }
+egui = "0.35"
+egui_bench = "0.4"
+futures-util = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"

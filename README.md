@@ -50,6 +50,20 @@ use.
 [`victron_ble`]: https://crates.io/crates/victron_ble
 [`vedirect`]: https://crates.io/crates/vedirect
 
+## Window
+
+`crates/ui` is a bench-instrument window over the same trait: it scans Bluetooth and serial
+ports, then shows charge, every cell, temperatures, ports and alarms with a history plot,
+and switches MOSFETs, balancer and outputs, writes settings and runs pairing where the
+device allows. Part of the [bench suite](https://github.com/v0l/bench-suite).
+
+```sh
+cargo run --release -p battery-control-ui           # real hardware
+cargo run --release -p battery-control-ui -- --demo # a made-up 16S pack
+```
+
+On Linux it needs `libdbus-1-dev` and `libudev-dev`. A `v*` tag builds archives, a `.dmg` and an `.msi` for every target; the tag has to match the `crates/ui` version and have a `CHANGELOG.md` entry.
+
 ## Example
 
 ```rust

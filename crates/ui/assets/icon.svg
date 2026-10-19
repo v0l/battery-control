@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-labelledby="t d">
+  <title id="t">battery control</title>
+  <desc id="d">A battery with a row of cells, one switch thrown and a bolt over the charge level.</desc>
+  <rect width="64" height="64" rx="14" fill="#0B1014"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="7" y="17" width="44" height="30" rx="4" stroke="#2FD3E1" stroke-width="3"/>
+    <path d="M56 27v10" stroke="#2FD3E1" stroke-width="3.2"/>
+    <path d="M14 25v14M21 25v14M28 25v14" stroke="#2FD3E1" stroke-width="3.4" opacity=".75"/>
+    <path d="M36 25v14" stroke="#2FD3E1" stroke-width="3.4" opacity=".3"/>
+    <path d="M44 22 38 33h6l-4 9" stroke="#FFB020" stroke-width="2.8"/>
+  </g>
+</svg>

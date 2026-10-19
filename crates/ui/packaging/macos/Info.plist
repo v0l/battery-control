@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>Battery Control</string>
+	<key>CFBundleDisplayName</key>
+	<string>Battery Control</string>
+	<key>CFBundleIdentifier</key>
+	<string>io.v0l.battery-control</string>
+	<key>CFBundleExecutable</key>
+	<string>battery-control</string>
+	<key>CFBundleIconFile</key>
+	<string>icon</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleVersion</key>
+	<string>__VERSION__</string>
+	<key>CFBundleShortVersionString</key>
+	<string>__VERSION__</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>11.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSSupportsAutomaticGraphicsSwitching</key>
+	<true/>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>Battery Control talks to batteries and power stations over Bluetooth.</string>
+</dict>
+</plist>
