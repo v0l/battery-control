@@ -14,7 +14,23 @@ path = "src/main.rs"
 
 [dependencies]
 async-trait = "0.1"
-battery_control = { path = "../..", features = ["full"] }
+battery_control = { path = "../..", features = [
+    "anker",
+    "jk",
+    "jbd",
+    "sok",
+    "renogy",
+    "pace",
+    "seplos",
+    "bluetti",
+    "jackery",
+    "ecoflow",
+    "daly",
+    "vedirect",
+    "pylontech-can",
+    "pylontech-rs485",
+    "pylontech-cli",
+] }
 eframe = { version = "0.35", default-features = false, features = [
     "default_fonts",
     "glow",
