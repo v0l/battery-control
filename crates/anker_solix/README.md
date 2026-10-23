@@ -132,4 +132,4 @@ you use it entirely at your own risk.
 
 ## License
 
-[MIT](LICENSE)
+GPL-3.0-or-later, see [LICENSE](../../LICENSE). anker_solix 0.4.0 and earlier on crates.io are MIT.

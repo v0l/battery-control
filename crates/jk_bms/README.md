@@ -2,7 +2,7 @@
 
 [![crates.io](https://img.shields.io/crates/v/jk_bms.svg)](https://crates.io/crates/jk_bms)
 [![docs.rs](https://docs.rs/jk_bms/badge.svg)](https://docs.rs/jk_bms)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 
 Async Rust implementation of [jktool](https://github.com/sshoecraft/jktool) — a library and command-line tool for communicating with JIKONG (JK) Battery Management Systems.
 
@@ -174,4 +174,4 @@ Auto-detected from the BMS info frame model string.
 
 ## License
 
-MIT
+GPL-3.0-or-later, see [LICENSE](LICENSE). jk_bms 0.5.0 and earlier on crates.io are MIT.

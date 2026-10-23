@@ -150,4 +150,6 @@ automatically. It also ships as a Home Assistant OS add-on.
 
 ## License
 
-MIT
+GPL-3.0-or-later. Copyright © 2026 Kieran Harkin. You may share and change it under the terms of
+the GNU General Public License, version 3 or any later version; see [LICENSE](LICENSE). Releases
+before the next release were published under MIT and stay available under it.

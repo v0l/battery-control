@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.92"
 description = "A window for monitoring and controlling batteries, BMSes and power stations"
-license = "MIT"
+license = "GPL-3.0-or-later"
 repository = "https://github.com/v0l/battery-control"
 publish = false
 
