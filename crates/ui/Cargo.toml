@@ -31,14 +31,14 @@ battery_control = { path = "../..", features = [
     "pylontech-rs485",
     "pylontech-cli",
 ] }
-eframe = { version = "0.35", default-features = false, features = [
+eframe = { version = "0.37", default-features = false, features = [
     "default_fonts",
     "glow",
     "wayland",
     "x11",
 ] }
-egui = "0.35"
-egui_bench = "0.5.4"
+egui = "0.37"
+egui_bench = "0.9.1"
 futures-util = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"] }
 
