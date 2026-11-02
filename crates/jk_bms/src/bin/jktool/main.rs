@@ -326,6 +326,7 @@ struct CanDevice {
 
 #[cfg(target_os = "linux")]
 fn scan_can_bus(interface: &str, broadcast_ids: &[u32], timeout_secs: u64) -> Vec<CanDevice> {
+    use jk_bms::get_can_info_command;
     use std::process::Command;
     use std::time::Duration;
 
