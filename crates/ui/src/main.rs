@@ -1,6 +1,7 @@
 #![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
 
 mod demo;
+mod render_check;
 mod worker;
 
 use battery_control::{
@@ -1046,7 +1047,7 @@ impl eframe::App for App {
             });
     }
 
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+    fn on_exit(&mut self) {
         self.worker.close();
     }
 }
@@ -1057,6 +1058,9 @@ fn main() -> eframe::Result<()> {
         println!("battery-control {}", env!("CARGO_PKG_VERSION"));
         return Ok(());
     }
+    if args.iter().any(|a| a == "--render-check") {
+        std::process::exit(if render_check::report() { 0 } else { 1 });
+    }
     let demo = args.iter().any(|a| a == "--demo");
     let mut viewport = egui::ViewportBuilder::default()
         .with_inner_size([1100.0, 780.0])
@@ -1066,7 +1070,16 @@ fn main() -> eframe::Result<()> {
     if let Ok(icon) = eframe::icon_data::from_png_bytes(include_bytes!("../assets/icon-256.png")) {
         viewport = viewport.with_icon(icon);
     }
-    let options = eframe::NativeOptions { viewport, ..Default::default() };
+    let mut wgpu_options = eframe::egui_wgpu::WgpuConfiguration::default();
+    if let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut wgpu_options.wgpu_setup {
+        setup.instance_descriptor.backends = render_check::pick_backends();
+    }
+    let options = eframe::NativeOptions {
+        viewport,
+        renderer: eframe::Renderer::Wgpu,
+        wgpu_options,
+        ..Default::default()
+    };
     eframe::run_native(
         "battery-control",
         options,
