@@ -113,6 +113,11 @@ cli = [
     "tokio/rt-multi-thread", "tokio/macros",
 ]
 
+[[example]]
+name = "pylon_cli"
+path = "examples/pylon_cli.rs"
+required-features = ["pylontech-cli"]
+
 [[bin]]
 name = "battery"
 path = "src/bin/battery/main.rs"
