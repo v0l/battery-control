@@ -6,6 +6,15 @@ All notable changes to battery control are listed here. The format follows
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-25
+
+### Fixed
+- The window opens with the wgpu renderer and checks at startup that it draws, so it no longer opens blank on machines where the OpenGL renderer fails.
+- The jktool example builds again, and the Pylontech example only builds with the pylontech-cli feature.
+
+### Changed
+- Every release now includes a source archive with its checksum.
+
 ## [0.1.1] - 2026-10-31
 
 ### Changed

@@ -317,7 +317,7 @@ dependencies = [
 
 [[package]]
 name = "battery_control"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anker_solix",
  "async-trait",
